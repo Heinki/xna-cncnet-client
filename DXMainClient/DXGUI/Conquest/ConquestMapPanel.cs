@@ -22,7 +22,11 @@ namespace DTAClient.DXGUI.Conquest
     internal sealed class ConquestMapPanel : XNAControl
     {
         private readonly Texture2D disc;
-        private readonly Texture2D? armyTexture;
+        private readonly ConquestArmy?[] armiesByTerritory;
+        private readonly bool[] destinations;
+        private readonly ConquestArmyAppearance playerAppearance;
+        private readonly ConquestArmyAppearance aiAppearance;
+        private ConquestFaction animationFaction;
         private Vector2 camera;
         private float zoom = 1.0f;
         private Point previousCursor;
@@ -33,9 +37,14 @@ namespace DTAClient.DXGUI.Conquest
         private double animationTime;
         private double animationDuration;
 
-        public ConquestMapPanel(WindowManager windowManager, ConquestCampaign campaign) : base(windowManager)
+        public ConquestMapPanel(WindowManager windowManager, ConquestCampaign campaign,
+            ConquestArmyAppearance playerAppearance, ConquestArmyAppearance aiAppearance) : base(windowManager)
         {
             Campaign = campaign;
+            armiesByTerritory = new ConquestArmy?[campaign.State.Territories.Count];
+            destinations = new bool[campaign.State.Territories.Count];
+            this.playerAppearance = playerAppearance;
+            this.aiAppearance = aiAppearance;
             DrawMode = ControlDrawMode.UNIQUE_RENDER_TARGET;
             HandlesDragging = true;
             disc = new Texture2D(windowManager.GraphicsDevice, 64, 64);
@@ -47,8 +56,6 @@ namespace DTAClient.DXGUI.Conquest
             }
 
             disc.SetData(pixels);
-            if (AssetLoader.AssetExists("ConquestArmy.png"))
-                armyTexture = AssetLoader.LoadTexture("ConquestArmy.png");
         }
 
         public ConquestCampaign Campaign { get; }
@@ -102,6 +109,7 @@ namespace DTAClient.DXGUI.Conquest
                 return;
 
             animationSource = action.SourceTerritoryId ?? -1;
+            animationFaction = action.FactionId;
             animationTarget = action.TargetTerritoryId ?? -1;
             animationTime = 0;
             animationDuration = Campaign.State.AnimationSpeed == 0 ? 0 : 0.8 / Campaign.State.AnimationSpeed;
@@ -222,8 +230,27 @@ namespace DTAClient.DXGUI.Conquest
             base.Update(gameTime);
         }
 
-        private bool IsDestination(int id) => CanIssueOrders && SelectedArmyTerritory.HasValue &&
-            Campaign.CanMove(ConquestFaction.Player, SelectedArmyTerritory.Value, id);
+        private bool IsDestination(int id) => destinations[id];
+
+        private void RefreshDrawState()
+        {
+            Array.Clear(armiesByTerritory, 0, armiesByTerritory.Length);
+            Array.Clear(destinations, 0, destinations.Length);
+            foreach (var army in Campaign.State.Armies)
+                armiesByTerritory[army.TerritoryId] = army;
+
+            if (!CanIssueOrders || !SelectedArmyTerritory.HasValue)
+                return;
+
+            int source = SelectedArmyTerritory.Value;
+            foreach (var edge in Campaign.State.Connections)
+            {
+                if (edge.Source != source && edge.Target != source)
+                    continue;
+                int target = edge.Source == source ? edge.Target : edge.Source;
+                destinations[target] = Campaign.CanMove(ConquestFaction.Player, source, target);
+            }
+        }
 
         private static Color FactionColor(ConquestFaction faction) => faction switch
         {
@@ -235,23 +262,48 @@ namespace DTAClient.DXGUI.Conquest
         private void Circle(Vector2 point, int radius, Color color) =>
             DrawTexture(disc, new Rectangle((int)point.X - radius, (int)point.Y - radius, radius * 2, radius * 2), color);
 
-        private void ArmyMarker(Vector2 point, Color color, float scale, bool used)
+        private void ArmyMarker(Vector2 point, Color color, float scale, bool used, ConquestFaction faction)
         {
+            var appearance = faction == ConquestFaction.Player ? playerAppearance : aiAppearance;
             int x = (int)point.X;
             int y = (int)point.Y;
             int unit = Math.Max(1, (int)(3 * scale));
-            if (armyTexture != null)
+            if (appearance.Unit != null)
             {
-                DrawTexture(armyTexture, new Rectangle(x - unit * 4, y - unit * 5, unit * 8, unit * 10), color);
+                float imageScale = unit * 12f / Math.Max(appearance.Unit.Width, appearance.Unit.Height);
+                int width = Math.Max(1, (int)(appearance.Unit.Width * imageScale));
+                int height = Math.Max(1, (int)(appearance.Unit.Height * imageScale));
+                DrawTexture(appearance.Unit, new Rectangle(x - width / 2, y - height / 2, width, height),
+                    Color.Lerp(Color.White, color, 0.25f) * (used ? 0.6f : 1));
+            }
+            else if (appearance.Style == "yuri")
+            {
+                DrawTexture(disc, new Rectangle(x - unit * 5, y - unit * 2, unit * 10, unit * 5), color);
+                DrawTexture(disc, new Rectangle(x - unit * 2, y - unit * 3, unit * 4, unit * 4), Color.Lerp(color, Color.White, 0.5f));
+            }
+            else if (appearance.Style == "nod")
+            {
+                // A wheeled scout distinguishes Nod from the tracked tank silhouettes.
+                for (int wheel = -2; wheel <= 2; wheel += 4)
+                {
+                    FillRectangle(new Rectangle(x - unit * 4, y + wheel * unit, unit * 2, unit * 2), color * 0.7f);
+                    FillRectangle(new Rectangle(x + unit * 2, y + wheel * unit, unit * 2, unit * 2), color * 0.7f);
+                }
+
+                FillRectangle(new Rectangle(x - unit * 2, y - unit * 3, unit * 4, unit * 7), color);
+                FillRectangle(new Rectangle(x - unit, y - unit * 2, unit * 2, unit * 2), Color.Lerp(color, Color.White, 0.5f));
+                FillRectangle(new Rectangle(x, y - unit * 5, unit, unit * 4), color);
             }
             else
             {
-                // A tank silhouette remains readable at overview scale and supports faction tinting.
+                bool heavy = appearance.Style == "gdi" || appearance.Style == "soviet" || appearance.Style == "soviets";
                 FillRectangle(new Rectangle(x - unit * 4, y - unit * 2, unit * 2, unit * 6), color * 0.65f);
                 FillRectangle(new Rectangle(x + unit * 2, y - unit * 2, unit * 2, unit * 6), color * 0.65f);
-                FillRectangle(new Rectangle(x - unit * 2, y - unit * 3, unit * 4, unit * 7), color);
+                FillRectangle(new Rectangle(x - unit * 2, y - unit * 3, unit * 4, unit * (heavy ? 8 : 6)), color);
                 FillRectangle(new Rectangle(x - unit, y - unit * 2, unit * 2, unit * 3), Color.Lerp(color, Color.White, 0.5f));
                 FillRectangle(new Rectangle(x, y - unit * 6, unit, unit * 5), Color.Lerp(color, Color.White, 0.65f));
+                if (appearance.Style == "gdi")
+                    FillRectangle(new Rectangle(x - unit * 2, y - unit * 6, unit, unit * 5), Color.Lerp(color, Color.White, 0.65f));
             }
 
             if (used)
@@ -260,6 +312,7 @@ namespace DTAClient.DXGUI.Conquest
 
         public override void Draw(GameTime gameTime)
         {
+            RefreshDrawState();
             FillControlArea(new Color(8, 18, 25));
             foreach (var edge in Campaign.State.Connections)
             {
@@ -290,7 +343,7 @@ namespace DTAClient.DXGUI.Conquest
                 bool selectedArmy = SelectedArmyTerritory == territory.Id;
                 bool destination = IsDestination(territory.Id);
                 var color = FactionColor(territory.Owner);
-                var army = Campaign.ArmyAt(territory.Id);
+                var army = armiesByTerritory[territory.Id];
                 int radius = (int)MathHelper.Clamp(26 * zoom, army == null ? 5 : 11, 26);
                 Color border = selectedArmy ? Color.Gold : destination
                     ? (territory.Owner == ConquestFaction.Player ? Color.LightGreen : Color.Orange)
@@ -300,17 +353,9 @@ namespace DTAClient.DXGUI.Conquest
                 Circle(point, Math.Max(3, radius - 4), color * 0.24f);
                 if (army != null)
                 {
-                    ArmyMarker(point, army.HasActed ? color * 0.65f : color, MathHelper.Clamp(zoom, 0.75f, 1), army.HasActed);
-                    string strength = army.Strength.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                    var size = Renderer.GetTextDimensions(strength, 0) * 0.8f;
-                    FillRectangle(new Rectangle((int)(point.X - size.X / 2) - 3, (int)point.Y + radius - 1, (int)size.X + 6, 15), new Color(5, 12, 18));
-                    DrawString(strength, 0, new Vector2(point.X - size.X / 2, point.Y + radius), color, 0.8f);
+                    ArmyMarker(point, army.HasActed ? color * 0.65f : color, MathHelper.Clamp(zoom, 0.75f, 1), army.HasActed, army.Faction);
                 }
 
-                string name = (territory.Id + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
-                float labelScale = zoom < 0.2f ? 0.65f : 0.8f;
-                var labelSize = Renderer.GetTextDimensions(name, 0) * labelScale;
-                DrawString(name, 0, new Vector2(point.X - labelSize.X / 2, point.Y - radius - labelSize.Y - 3), Color.White, labelScale);
                 if (territory.Id == hovered && destination)
                 {
                     string action = territory.Owner == ConquestFaction.Player
@@ -323,10 +368,10 @@ namespace DTAClient.DXGUI.Conquest
             {
                 var source = NodeScreenPosition(animationSource);
                 var target = NodeScreenPosition(animationTarget);
-                ArmyMarker(Vector2.Lerp(source, target, (float)(animationTime / animationDuration)), Color.Gold, 1, false);
+                ArmyMarker(Vector2.Lerp(source, target, (float)(animationTime / animationDuration)), Color.Gold, 1, false, animationFaction);
             }
 
-            DrawString("Blue: player | Red: AI\nTank: army | Gold ring: selected army".L10N("Client:Conquest:MapLegend"),
+            DrawString("Blue: you | Red: enemy\nGold ring: selected army | Slash: already moved".L10N("Client:Conquest:ArmyMapLegend"),
                 0, new Vector2(10, Height - 36), Color.LightGray, 0.85f);
             base.Draw(gameTime);
         }

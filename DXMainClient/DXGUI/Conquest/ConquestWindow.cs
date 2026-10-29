@@ -41,7 +41,7 @@ namespace DTAClient.DXGUI.Conquest
         private double aiDelay;
 
         public ConquestWindow(WindowManager windowManager, ConquestCampaign campaign, ConquestSaveStore store,
-            int width, int height) : base(windowManager)
+            int width, int height, ConquestArmyAppearance playerAppearance, ConquestArmyAppearance aiAppearance) : base(windowManager)
         {
             Campaign = campaign;
             this.store = store;
@@ -54,7 +54,7 @@ namespace DTAClient.DXGUI.Conquest
 
             title = Label("lblTitle", 12, 8);
             economy = Label("lblEconomy", 12, 35);
-            Label("lblMapHelp", 12, 57).Text = "Select a tank, then a highlighted node. Follow links. Right/middle drag: pan. Wheel: zoom. Empty space: deselect.".L10N("Client:Conquest:NetworkMapHelp");
+            Label("lblMapHelp", 12, 57).Text = "Select an army, then a highlighted node. Right/middle drag: pan. Wheel: zoom. Empty space: deselect.".L10N("Client:Conquest:ArmyNetworkHelp");
             int detailsWidth = width < 1000 ? 166 : 200;
             details = new ConquestTerritoryPanel(windowManager, campaign)
             {
@@ -62,7 +62,7 @@ namespace DTAClient.DXGUI.Conquest
                 ClientRectangle = new Rectangle(12, 82, detailsWidth, height - 278)
             };
             AddChild(details);
-            map = new ConquestMapPanel(windowManager, campaign)
+            map = new ConquestMapPanel(windowManager, campaign, playerAppearance, aiAppearance)
             {
                 Name = "ConquestMap",
                 ClientRectangle = new Rectangle(detailsWidth + 24, 82, width - detailsWidth - 36, height - 278),
@@ -114,6 +114,8 @@ namespace DTAClient.DXGUI.Conquest
             Button("btnOverview", "Overview".L10N("Client:Conquest:Overview"), width - buttonWidth - 12, height - 87, map.ShowOverview);
             Button("btnBonuses", "Bonuses…".L10N("Client:Conquest:OpenBonuses"), 12, height - 87,
                 () => ShowBenefits(ConquestBenefitsTab.Player));
+            Button("btnPerkShop", "Perk shop…".L10N("Client:Conquest:OpenPerkShop"), 12 + step, height - 87,
+                () => ShowBenefits(ConquestBenefitsTab.Shop));
             AddChild(new ConquestPurchaseSummary(windowManager, campaign)
             {
                 Name = "pnlPurchaseSummary",
@@ -166,9 +168,13 @@ namespace DTAClient.DXGUI.Conquest
             if (benefits == null)
             {
                 map.Enabled = false;
+                int territoryId = map.SelectedTerritory;
+
                 benefits = new ConquestBenefitsPanel(WindowManager, Campaign, Width, Height,
                     stat => Commit(() => Campaign.BuyUpgrade(ConquestFaction.Player, stat)),
                     () => Commit(() => Campaign.BuyTemporaryBonus(ConquestFaction.Player)),
+                    territoryId,
+                    id => Commit(() => Campaign.BuyPerk(ConquestFaction.Player, id, territoryId)),
                     () =>
                     {
                         benefits!.Kill();
@@ -282,28 +288,26 @@ namespace DTAClient.DXGUI.Conquest
                 _ => state.Winner == ConquestFaction.Player ? "Victory".L10N("Client:Conquest:Victory") : "Defeat".L10N("Client:Conquest:Defeat")
             };
             title.Text = string.Format("CONQUEST — ROUND {0} | {1}".L10N("Client:Conquest:CampaignTitle"), state.TurnNumber, phase);
-            economy.Text = string.Format("Credits: {0} | Research: {1}/{2} | Supplies: {3}/3 | Goal: capture all enemy territories.".L10N("Client:Conquest:EconomyCapacity"),
-                state.Player.Credits, state.Settings.SupportedStats.Sum(stat => state.Player.Upgrades.GetValueOrDefault(stat)),
-                state.Settings.SupportedStats.Count * 3, state.Player.TemporaryBonuses);
+            economy.Text = string.Format("Campaign credits: {0} (+{1}/turn). Spend on armies, research and supplies.".L10N("Client:Conquest:CampaignCreditsHelp"),
+                state.Player.Credits, Campaign.IncomePerTurn(ConquestFaction.Player));
             var territory = state.Territories[map.SelectedTerritory];
             var army = Campaign.ArmyAt(territory.Id);
-            selection.Text = string.Format("{0} | {1} | {2} | Strength: {3} | {4}".L10N("Client:Conquest:SelectionStatus"),
-                ConquestText.Territory(territory.Id), ConquestText.Faction(territory.Owner), string.Format("Income {0}".L10N("Client:Conquest:SelectionIncome"), territory.Income),
-                army?.Strength ?? 0, army?.HasActed == true ? "Action used".L10N("Client:Conquest:ActionUsed") : "Ready".L10N("Client:Conquest:Ready"));
+            selection.Text = string.Format("{0} | {1} | +{2} credits/turn".L10N("Client:Conquest:SelectedNodeSummary"),
+                ConquestText.Territory(territory), ConquestText.Faction(territory.Owner), territory.Income);
             var battle = state.PendingBattle;
             string hint = state.Phase switch
             {
                 ConquestPhase.AITurn => "AI armies are moving. An attack on you will pause for your decision.".L10N("Client:Conquest:AIMovementHelp"),
                 ConquestPhase.Finished => "Campaign finished. Inspect any node or review the campaign history.".L10N("Client:Conquest:FinishedHelp"),
-                _ when map.SelectedArmyTerritory.HasValue => string.Format(
-                    "Army selected at {0}. Green links: move/merge. Orange links: attack. Click a highlighted node.".L10N("Client:Conquest:SelectedArmyHelp"),
-                    ConquestText.Territory(map.SelectedArmyTerritory.Value)),
-                _ => "No army selected. Click one of your ready tanks to show its legal destinations.".L10N("Client:Conquest:SelectArmyHelp")
+                _ when map.SelectedArmyTerritory.HasValue => "Green route: move or merge. Orange route: attack. Click a highlighted node.".L10N("Client:Conquest:SelectedArmyRoutes"),
+                _ => "Select an army to see where it can move or attack.".L10N("Client:Conquest:SelectArmyHint")
             };
-            double winChance = battle == null ? 0 : ConquestCampaign.PlayerWinChance(battle);
+            int playerPower = battle == null ? 0 : battle.Attacker == ConquestFaction.Player ? battle.AttackPower : battle.DefensePower;
+            int enemyPower = battle == null ? 0 : battle.Attacker == ConquestFaction.Player ? battle.DefensePower : battle.AttackPower;
+
             battleStatus.Text = battle == null ? hint : string.Format(
-                "Battle at {0} | Attack {1} / Defense {2} | Autobattle: win {3:P0}, lose {4:P0}. Skirmish outcome depends on play.".L10N("Client:Conquest:BattleOdds"),
-                ConquestText.Territory(battle.TargetTerritoryId), battle.AttackPower, battle.DefensePower, winChance, 1 - winChance);
+                "Autobattle: {0:P0} win chance. Your power: {1} | Enemy: {2} (bonuses included). Start Battle: fight it yourself.".L10N("Client:Conquest:BattlePowerSummary"),
+                ConquestCampaign.PlayerWinChance(battle), playerPower, enemyPower);
             details.Battle = battle;
             details.Inspect(map.SelectedTerritory);
             autoCombat.Visible = skirmish.Visible = battle != null;
@@ -319,9 +323,9 @@ namespace DTAClient.DXGUI.Conquest
             skirmish.Enabled = autoCombat.Enabled && !string.IsNullOrEmpty(state.Territories[battle!.TargetTerritoryId].BattleMap.Hash);
             if (autoCombat.Enabled)
             {
-                autoCombat.ToolTipText = string.Format("Your win chance: {0:P1}. Loss chance: {1:P1}.".L10N("Client:Conquest:AutoOddsTooltip"), winChance, 1 - winChance);
+                autoCombat.ToolTipText = string.Format("Your win chance: {0:P1}. Loss chance: {1:P1}.".L10N("Client:Conquest:AutoOddsTooltip"), ConquestCampaign.PlayerWinChance(battle!), 1 - ConquestCampaign.PlayerWinChance(battle!));
             }
-            recruit.ToolTipText = string.Format("Recruit +{0} army strength for 100 credits. Uses the army action.".L10N("Client:Conquest:RecruitPerkTooltip"),
+            recruit.ToolTipText = string.Format("100 campaign credits: add +{0} army power. Uses this army's move. Power improves autobattle odds; skirmish starting units are set separately.".L10N("Client:Conquest:RecruitPowerExplanation"),
                 Campaign.RecruitmentStrength(ConquestFaction.Player));
             benefits?.Refresh();
         }

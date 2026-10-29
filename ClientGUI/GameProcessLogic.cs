@@ -88,6 +88,15 @@ namespace ClientGUI
 
             string extraCommandLine = ClientConfiguration.Instance.ExtraExeCommandLineParameters;
 
+            if (!File.Exists(SafePath.CombineFilePath(ProgramConstants.GamePath, gameExecutableName)))
+            {
+                Logger.Log("Game launcher not found: " + gameExecutableName);
+                XNAMessageBox.Show(windowManager, errorLaunchingTitle,
+                    string.Format("Game launcher not found: {0}\n\nRun this client from a complete game/mod installation. On Linux, the game pack must also supply its configured Wine launch script.".L10N("Client:ClientGUI:GameLauncherMissing"),
+                        gameExecutableName));
+                return;
+            }
+
             SafePath.DeleteFileIfExists(ProgramConstants.GamePath, "DTA.LOG");
             SafePath.DeleteFileIfExists(ProgramConstants.GamePath, "TI.LOG");
             SafePath.DeleteFileIfExists(ProgramConstants.GamePath, "TS.LOG");

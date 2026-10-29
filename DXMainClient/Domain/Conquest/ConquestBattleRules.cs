@@ -89,6 +89,8 @@ namespace DTAClient.Domain.Conquest
         public static double AIMultiplier(ConquestBattle battle) =>
             1 + battle.AIStats.GetValueOrDefault(ConquestStat.Damage) / 100.0;
 
+        public bool CanBuildOn(string ground) => rules.GetBooleanValue(ground, "Buildable", true);
+
         public string ResolvePlayerType(string source) => aliases.TryGetValue(source, out string? clone) ? clone : source;
 
         public void ApplySpawn(IniFile spawn)

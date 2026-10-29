@@ -1,5 +1,7 @@
 #nullable enable
 
+using System;
+using System.IO;
 using System.Linq;
 
 using ClientCore.Statistics;
@@ -8,6 +10,26 @@ namespace DTAClient.Domain.Conquest
 {
     public static class ConquestSkirmish
     {
+        /// <summary>Failed preparation leaves the committed battle available for retry or auto combat.</summary>
+        public static bool TryLaunch(ConquestBattle battle, Action launch, out Exception? error)
+        {
+            try
+            {
+                launch();
+                error = null;
+
+                return true;
+            }
+            catch (Exception ex) when (ex is InvalidDataException || ex is IOException ||
+                ex is UnauthorizedAccessException || ex is InvalidOperationException)
+            {
+                battle.SkirmishLaunched = false;
+                error = ex;
+
+                return false;
+            }
+        }
+
         /// <summary>
         /// Only an explicit local result from this launched match can resolve the pending battle.
         /// Missing, incomplete, contradictory or repeated results leave strategic state untouched.

@@ -136,6 +136,7 @@
       <ExampleClientSettings Include="$(MSBuildThisFileDirectory)\DXMainClient\Resources\SUN.ini" />
       <ExampleClientDefinitions Include="$(MSBuildThisFileDirectory)\DXMainClient\Resources\ClientDefinitions.ini" />
       <ConquestFontResources Include="$(MSBuildThisFileDirectory)DXMainClient/Resources/DTA/Fonts/texgyreadventor-bold.otf;$(MSBuildThisFileDirectory)DXMainClient/Resources/DTA/Fonts/GUST-FONT-LICENSE.txt" />
+      <ConquestUnitResources Include="$(MSBuildThisFileDirectory)DXMainClient/Resources/DTA/Conquest/Units/*.png" />
       <ConquestThemeResources Include="$(MSBuildThisFileDirectory)DXMainClient/Resources/DTA/MainMenu.ini;$(MSBuildThisFileDirectory)DXMainClient/Resources/DTA/ConquestSetupPanel.ini;$(MSBuildThisFileDirectory)DXMainClient/Resources/DTA/ConquestWindow.ini;$(MSBuildThisFileDirectory)DXMainClient/Resources/DTA/ConquestBenefitsPanel.ini" />
     </ItemGroup>
     <Copy Condition="! Exists('$(OutputPath)\Resources\ClientDefinitions.ini') " SourceFiles="@(ExampleClientResources)" DestinationFolder="$(OutputPath)\Resources\%(RecursiveDir)" />
@@ -145,6 +146,7 @@
     <Copy Condition="! Exists('$(OutputPath)\Resources\ClientDefinitions.ini') " SourceFiles="@(ExampleClientSettings)" DestinationFolder="$(OutputPath)" />
     <Copy Condition="! Exists('$(OutputPath)\Resources\ClientDefinitions.ini') " SourceFiles="@(ExampleClientDefinitions)" DestinationFolder="$(OutputPath)\Resources" />
     <!-- Refresh these UI definitions in existing developer outputs as Conquest evolves. -->
+    <Copy SourceFiles="@(ConquestUnitResources)" DestinationFolder="$(OutputPath)/Resources/Conquest/Units" SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(ConquestFontResources)" DestinationFolder="$(OutputPath)/Resources/Fonts" SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(ConquestThemeResources)" DestinationFolder="$(OutputPath)\Resources" SkipUnchangedFiles="true" />
   </Target>

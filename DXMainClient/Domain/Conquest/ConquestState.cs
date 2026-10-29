@@ -71,6 +71,7 @@ namespace DTAClient.Domain.Conquest
         public ConquestBonus Bonus { get; set; }
         public int Income { get; set; } = 100;
         public Dictionary<ConquestStat, int> Buffs { get; set; } = new();
+        public Dictionary<string, int> Perks { get; set; } = new();
         public string RewardId { get; set; } = string.Empty;
         public List<ConquestFaction> RewardClaimedBy { get; set; } = new();
         public ConquestMapAssignment BattleMap { get; set; } = new();
@@ -126,7 +127,7 @@ namespace DTAClient.Domain.Conquest
     /// </summary>
     public sealed class ConquestState
     {
-        public int Version { get; set; } = 4;
+        public int Version { get; set; } = 6;
         public Guid CampaignId { get; set; } = Guid.NewGuid();
         public bool Started { get; set; }
         public ConquestSettings Settings { get; set; } = new ConquestSettings();

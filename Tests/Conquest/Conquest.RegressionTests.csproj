@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ClientOutput>../../DXMainClient/bin/Release/UniversalGL/net8.0</ClientOutput>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="clientogl" HintPath="$(ClientOutput)/clientogl.dll" />
+    <Reference Include="ClientCore" HintPath="$(ClientOutput)/ClientCore.dll" />
+    <Reference Include="lzo.net" HintPath="$(ClientOutput)/lzo.net.dll" />
+    <Reference Include="Rampastring.Tools" HintPath="$(ClientOutput)/Rampastring.Tools.dll" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../DXMainClient/Resources/Maps/Tiberian Sun/terrace.map" Link="Fixtures/terrace.map" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../DXMainClient/Resources/Maps/Firestorm/duel.map" Link="Fixtures/duel.map" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../DXMainClient/Resources/Maps/Fan-made/pain_redefined.map" Link="Fixtures/pain_redefined.map" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../DXMainClient/Resources/INI/temperat.ini" Link="Fixtures/INI/temperat.ini" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

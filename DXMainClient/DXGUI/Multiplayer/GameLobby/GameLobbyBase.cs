@@ -231,6 +231,8 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
         /// before launching it.
         /// </summary>
         protected bool RemoveStartingLocations { get; set; } = false;
+
+        protected virtual bool ForceClientStartingLocations => false;
         protected IniFile GameOptionsIni { get; private set; }
 
         protected XNAClientButton btnSaveLoadGameOptions { get; set; }
@@ -1647,7 +1649,7 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
 
                 pHouseInfo.RandomizeColor(pInfo, freeColors, MPColors, pseudoRandom);
 
-                bool overrideGameRandomLocations = teamStartMappings.Any()
+                bool overrideGameRandomLocations = ForceClientStartingLocations || teamStartMappings.Any()
                     || GameModeMap.AllowedStartingLocations.Max() > GameModeMap.MaxPlayers; // non-sequential AllowedStartingLocations
                 pHouseInfo.RandomizeStart(pInfo, pseudoRandom, freeStartingLocations, takenStartingLocations, overrideGameRandomLocations);
             }

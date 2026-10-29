@@ -34,6 +34,7 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
     public class ConquestLobby : SkirmishLobby
     {
         private readonly Random campaignRandom;
+        private readonly DirectDrawWrapperManager rendererManager;
         private readonly Dictionary<XNAControl, (bool Visible, bool Enabled)> lobbyControls = new();
         private ConquestSaveStore? store;
         private ConquestWindow? campaignWindow;
@@ -43,14 +44,16 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
         private ConquestBattleConfiguration? battleConfiguration;
 
         public ConquestLobby(WindowManager windowManager, TopBar topBar, MapLoader mapLoader,
-            DiscordHandler discordHandler, Random random)
+            DiscordHandler discordHandler, Random random, DirectDrawWrapperManager rendererManager)
             : base(windowManager, topBar, mapLoader, discordHandler, random)
         {
             campaignRandom = random;
+            this.rendererManager = rendererManager;
         }
 
         protected override string SettingsPath => "Client/ConquestSettings.ini";
         protected override bool RecordMatchStatistics => false;
+        protected override bool ForceClientStartingLocations => true;
 
         public override void Open()
         {
@@ -204,6 +207,13 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
             {
                 var state = store!.Load();
                 state.Settings.SupportedStats = state.Settings.SupportedStats.Intersect(battleConfiguration!.SupportedStats).ToList();
+                int humanCountry = new PlayerHouseInfo { SideIndex = state.Settings.PlayerSide - RandomSelectorCount }.InternalSideIndex;
+                int enemyCountry = new PlayerHouseInfo { SideIndex = state.Settings.AISide - RandomSelectorCount }.InternalSideIndex;
+                foreach (var perk in battleConfiguration.LoadPerks(ProgramConstants.GamePath, humanCountry, enemyCountry))
+                {
+                    if (!state.Settings.Perks.Any(p => p.Id == perk.Id) && state.Settings.Perks.Count < 32)
+                        state.Settings.Perks.Add(perk);
+                }
                 // A process cannot resume across restarts. Keep the pending attack and its
                 // consumed bonuses; allow retry or auto combat without replaying the attack.
                 if (state.PendingBattle != null)
@@ -226,7 +236,8 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
                 setup = null;
             }
 
-            campaignWindow = new ConquestWindow(WindowManager, campaign, store!, Width, Height);
+            campaignWindow = new ConquestWindow(WindowManager, campaign, store!, Width, Height,
+                LoadArmyAppearance(campaign.State.Settings.PlayerSide), LoadArmyAppearance(campaign.State.Settings.AISide));
             campaignWindow.ExitRequested = () =>
             {
                 campaignWindow.Kill();
@@ -237,6 +248,16 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
             };
             campaignWindow.SkirmishRequested = LaunchCampaignBattle;
             AddChild(campaignWindow);
+        }
+
+        private ConquestArmyAppearance LoadArmyAppearance(int side)
+        {
+            string[] names = ClientConfiguration.Instance.Sides.Split(',');
+            int index = side - RandomSelectorCount;
+            string faction = index >= 0 && index < names.Length ? names[index].Trim() : string.Empty;
+
+            return ConquestArmyAppearance.Load(faction, GameOptionsIni.GetStringValue("ConquestArmyIcons", faction, string.Empty),
+                GameOptionsIni.GetStringValue("ConquestArmyStyles", faction, string.Empty));
         }
 
         private void LaunchCampaignBattle()
@@ -338,19 +359,37 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
                 return;
             }
 
-            try
+            if (!ConquestSkirmish.TryLaunch(battle, () =>
             {
+                EnableWindowedBattle();
                 base.StartGame();
-            }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is InvalidOperationException)
+            }, out var launchError))
             {
-                battle.SkirmishLaunched = false;
                 launchedBattleId = null;
                 campaignWindow.Save();
-                XNAMessageBox.Show(WindowManager, "Cannot launch game".L10N("Client:Main:LaunchGameErrorTitle"), ex.Message);
+                Logger.Log("Conquest launch failed: " + launchError);
+                XNAMessageBox.Show(WindowManager, "Cannot launch game".L10N("Client:Main:LaunchGameErrorTitle"), launchError!.Message);
             }
 
             campaignWindow.Refresh();
+        }
+
+        private void EnableWindowedBattle()
+        {
+            UserINISettings.Instance.WindowedMode.Value = true;
+            UserINISettings.Instance.BorderlessWindowedMode.Value = false;
+            var renderer = rendererManager.SelectedRenderer;
+            if (renderer.UsesCustomWindowedOption() && !string.IsNullOrEmpty(renderer.ConfigFileName))
+            {
+                rendererManager.Save(renderer);
+                string path = SafePath.CombineFilePath(ProgramConstants.GamePath, renderer.ConfigFileName);
+                var config = new IniFile(path);
+                config.SetBooleanValue(renderer.WindowedModeSection, renderer.WindowedModeKey, true);
+                if (!string.IsNullOrEmpty(renderer.BorderlessWindowedModeKey))
+                    config.SetBooleanValue(renderer.WindowedModeSection, renderer.BorderlessWindowedModeKey, renderer.IsBorderlessWindowedModeKeyReversed);
+                config.WriteIniFile();
+            }
+            UserINISettings.Instance.SaveSettings();
         }
 
         private int? ResolveSide(int selected, bool human, Random random)
@@ -394,8 +433,11 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
             if (statistics == null || !ConquestSkirmish.TryResolve(campaign!, statistics))
             {
                 battle.SkirmishLaunched = false;
-                XNAMessageBox.Show(WindowManager, "Battle unresolved".L10N("Client:Conquest:UnresolvedBattle"),
-                    "No reliable battle result was found. Retry the battle or choose Auto Combat; campaign progress is preserved.".L10N("Client:Conquest:UnresolvedBattleHelp"));
+                string logPath = SafePath.CombineFilePath(ProgramConstants.GamePath, ClientConfiguration.Instance.StatisticsLogFileName);
+                string help = File.Exists(logPath)
+                    ? "No reliable battle result was found. Retry the battle or choose Auto Combat; campaign progress is preserved.".L10N("Client:Conquest:UnresolvedBattleHelp")
+                    : "The game did not write its result log. Use a game build with result logging, then retry, or choose Auto Combat. Campaign progress is preserved.".L10N("Client:Conquest:MissingResultLogHelp");
+                XNAMessageBox.Show(WindowManager, "Battle unresolved".L10N("Client:Conquest:UnresolvedBattle"), help);
             }
 
             campaignWindow!.Save();
@@ -410,6 +452,15 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
                 return;
 
             battleRules?.ApplyMap(mapIni, battle);
+            if (houseInfos.Length >= 2)
+            {
+                ConquestStartingForces.Apply(mapIni, campaignWindow!.Campaign.State.Settings, battle,
+                    houseInfos[0].StartingWaypoint, houseInfos[1].StartingWaypoint,
+                    houseInfos[0].InternalSideIndex, houseInfos[1].InternalSideIndex,
+                    id => battleRules?.ResolvePlayerType(id) ?? id,
+                    battleConfiguration?.LoadTerrain(ProgramConstants.GamePath, mapIni.GetStringValue("Map", "Theater", string.Empty)),
+                    ground => battleRules?.CanBuildOn(ground) ?? true);
+            }
             ApplyPerkCode(mapIni, battle, houseInfos, false);
 
             // Mod-owned rules avoid assuming an engine-specific unit, country, or house tag.
@@ -440,9 +491,15 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
 
         private void ApplyPerkCode(IniFile destination, ConquestBattle battle, PlayerHouseInfo[]? houses, bool spawn)
         {
-            ConquestPerkRules.Apply(destination, campaignWindow!.Campaign.State.Settings, battle, ProgramConstants.GamePath,
+            var settings = campaignWindow!.Campaign.State.Settings;
+            int playerSide = houses?.Length >= 2 ? houses[0].InternalSideIndex :
+                new PlayerHouseInfo { SideIndex = settings.PlayerSide - RandomSelectorCount }.InternalSideIndex;
+            int aiSide = houses?.Length >= 2 ? houses[1].InternalSideIndex :
+                new PlayerHouseInfo { SideIndex = settings.AISide - RandomSelectorCount }.InternalSideIndex;
+
+            ConquestPerkRules.Apply(destination, settings, battle, ProgramConstants.GamePath,
                 spawn, houses?.Length >= 2 ? houses[0].StartingWaypoint : -1, houses?.Length >= 2 ? houses[1].StartingWaypoint : -1,
-                id => battleRules?.ResolvePlayerType(id) ?? id);
+                id => battleRules?.ResolvePlayerType(id) ?? id, playerSide, aiSide);
         }
 
         private static IniFile LoadBattleConfiguration()
@@ -464,6 +521,7 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
                 battleRules = new ConquestBattleRules(configuration.LoadRules(ProgramConstants.GamePath),
                     ClientConfiguration.Instance.ClientGameType, campaignWindow!.Campaign.State.Settings.Difficulty,
                     iniFile.GetIntValue("Settings", "Side", 0), iniFile.GetIntValue("HouseCountries", "Multi2", 0), configuration);
+                iniFile.SetIntValue("Settings", "GameID", battle.SkirmishGameId);
                 battleRules.ApplySpawn(iniFile);
                 ApplyPerkCode(iniFile, battle, null, true);
             }

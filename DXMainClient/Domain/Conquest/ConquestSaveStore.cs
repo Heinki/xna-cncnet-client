@@ -152,7 +152,7 @@ namespace DTAClient.Domain.Conquest
 
         private static void Validate(ConquestState state)
         {
-            if ((state.Version < 1 || state.Version > 4) || state.CampaignId == Guid.Empty || state.HistoryBytes < 0 || state.SavedEventCount < 0 ||
+            if ((state.Version < 1 || state.Version > 6) || state.CampaignId == Guid.Empty || state.HistoryBytes < 0 || state.SavedEventCount < 0 ||
                 state.Settings == null || state.Player == null || state.AI == null ||
                 state.Territories == null || state.Connections == null || state.Armies == null || state.TurnNumber < 1 || state.NextId < 1 ||
                 state.RandomState == 0 || !Enum.IsDefined(typeof(ConquestPhase), state.Phase) ||
@@ -225,7 +225,8 @@ namespace DTAClient.Domain.Conquest
                         territory.Buffs[ConquestStat.Armor] = 10;
                     territory.BattleMap = new ConquestMapAssignment
                     {
-                        Hash = state.Settings.BattleMapHash, GameMode = state.Settings.BattleGameMode
+                        Hash = state.Settings.BattleMapHash,
+                        GameMode = state.Settings.BattleGameMode
                     };
                 }
                 foreach (var economy in new[] { state.Player, state.AI })
@@ -234,19 +235,25 @@ namespace DTAClient.Domain.Conquest
                         economy.Upgrades[ConquestStat.Damage] = Math.Min(3, economy.UpgradeLevel);
                 }
             }
-            state.Version = 4;
+            state.Version = 6;
             var perks = state.Settings.Perks;
             if (perks == null || perks.Count > 32 || perks.Any(p => p == null || string.IsNullOrEmpty(p.Id) || p.Id.Length > 80 ||
                 p.Name == null || p.Description == null || p.MapCodeFile == null || p.SpawnCodeFile == null ||
                 !Enum.IsDefined(typeof(ConquestPerkKind), p.Kind) || p.MaximumLevel < 1 || p.MaximumLevel > 3 ||
-                p.Amount < 0 || p.Amount > 100 || p.AutoCombatStrength < 0 || p.AutoCombatStrength > 10) ||
+                p.Amount < 0 || p.Amount > 100 || p.AutoCombatStrength < 0 || p.AutoCombatStrength > 10 ||
+                p.StartingObjects == null || p.StartingObjects.Count > 32 || p.StartingObjects.Any(g => g == null ||
+                g.Side < 0 || g.Side > 255 || string.IsNullOrEmpty(g.Type) || g.Type.Length > 80 ||
+                g.Type.Any(c => !char.IsLetterOrDigit(c) && c != '_' && c != '-' && c != '.') || g.Upgrade == null || g.Upgrade.Length > 80 ||
+                g.Upgrade.Any(c => !char.IsLetterOrDigit(c) && c != '_' && c != '-' && c != '.') || (g.Upgrade.Length > 0 && g.Kind != ConquestObjectKind.Building) || !Enum.IsDefined(typeof(ConquestObjectKind), g.Kind) ||
+                g.Count < 1 || g.Count > 12 || g.Footprint < 1 || g.Footprint > 12) || p.StartingObjects.Select(g => g.Side).Distinct().Count() != p.StartingObjects.Count ||
+                p.PurchaseCost < 0 || p.PurchaseCost > 100000 || (p.TerritoryOnly && p.Kind != ConquestPerkKind.StartingDefenses)) ||
                 perks.Select(p => p.Id).Distinct().Count() != perks.Count)
                 throw new InvalidDataException("Invalid Conquest capture reward definitions.");
 
             foreach (var territory in state.Territories)
             {
                 if (territory.RewardId == null || territory.RewardClaimedBy == null ||
-                    (territory.RewardId.Length > 0 && !perks.Any(p => p.Id == territory.RewardId)) ||
+                    (territory.RewardId.Length > 0 && !perks.Any(p => p.Id == territory.RewardId && !p.TerritoryOnly)) ||
                     territory.RewardClaimedBy.Any(f => f != ConquestFaction.Player && f != ConquestFaction.AI) ||
                     territory.RewardClaimedBy.Distinct().Count() != territory.RewardClaimedBy.Count)
                     throw new InvalidDataException("Invalid Conquest capture reward.");
@@ -254,10 +261,14 @@ namespace DTAClient.Domain.Conquest
             bool validPerks(Dictionary<string, int>? owned) => owned != null && owned.All(e =>
                 perks.Any(p => p.Id == e.Key && e.Value >= 1 && e.Value <= p.MaximumLevel));
             if (!validPerks(state.Player.Perks) || !validPerks(state.AI.Perks) ||
+                state.Player.Perks.Keys.Concat(state.AI.Perks.Keys).Any(id => perks.Single(p => p.Id == id).TerritoryOnly) ||
                 (state.PendingBattle != null && (!validPerks(state.PendingBattle.PlayerPerks) || !validPerks(state.PendingBattle.AIPerks))))
                 throw new InvalidDataException("Invalid Conquest permanent perks.");
             foreach (var territory in state.Territories)
             {
+                if (!validPerks(territory.Perks) || territory.Perks.Keys.Any(id => !perks.Single(p => p.Id == id).TerritoryOnly))
+                    throw new InvalidDataException("Invalid Conquest territory improvements.");
+
                 if (territory.Income < 50 || territory.Income > 1000 || !ValidStats(territory.Buffs, 100) ||
                     territory.BattleMap == null || territory.BattleMap.Hash == null || territory.BattleMap.GameMode == null)
                     throw new InvalidDataException("Invalid Conquest territory effects.");

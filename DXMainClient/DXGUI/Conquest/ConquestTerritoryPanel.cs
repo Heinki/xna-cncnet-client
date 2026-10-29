@@ -58,10 +58,20 @@ namespace DTAClient.DXGUI.Conquest
             territoryId = id;
             lines.Clear();
             var territory = campaign.State.Territories[id];
-            Add(ConquestText.Territory(id));
+            Add(ConquestText.Territory(territory));
             Add(ConquestText.Faction(territory.Owner));
             Add(string.Format("Income: {0} credits / turn".L10N("Client:Conquest:NodeIncome"), territory.Income));
-            Add("While owned, all your units gain:".L10N("Client:Conquest:NodeBuffScope"));
+            foreach (var improvement in territory.Perks)
+            {
+                var perk = campaign.State.Settings.Perks.Single(p => p.Id == improvement.Key);
+                Add(string.Format("Local defense: {0}, level {1}/{2}".L10N("Client:Conquest:LocalDefense"),
+                    ConquestText.PerkName(perk), improvement.Value, perk.MaximumLevel));
+            }
+
+            if (territory.Perks.Count > 0)
+                Add("Defends this node only. Captured defenses pass to the new owner.".L10N("Client:Conquest:LocalDefenseScope"));
+
+            Add("Hold this node to boost your whole faction:".L10N("Client:Conquest:NodeBuffExplanation"));
             var buffs = territory.Buffs.Where(b => campaign.State.Settings.SupportedStats.Contains(b.Key)).ToList();
             if (buffs.Count == 0)
                 Add("No combat buffs".L10N("Client:Conquest:NoCombatBuffs"));
@@ -82,12 +92,12 @@ namespace DTAClient.DXGUI.Conquest
             }
 
             var army = campaign.ArmyAt(id);
-            Add(string.Format("Army strength: {0}".L10N("Client:Conquest:NodeArmyStrength"), army?.Strength ?? 0));
+            if (Battle != null && (id == Battle.SourceTerritoryId || id == Battle.TargetTerritoryId))
+                Add(string.Format("Army power: {0}".L10N("Client:Conquest:BattleArmyPower"), army?.Strength ?? 2));
+
             if (army != null)
                 Add(army.HasActed ? "Action used".L10N("Client:Conquest:ActionUsed") : "Ready".L10N("Client:Conquest:Ready"));
 
-            Add(string.IsNullOrEmpty(territory.BattleMap.Name)
-                ? "Battle map unavailable".L10N("Client:Conquest:NoAssignedMap") : territory.BattleMap.Name);
             text.SetLines(lines);
         }
 
@@ -102,7 +112,7 @@ namespace DTAClient.DXGUI.Conquest
             if (Battle != null)
             {
                 double win = ConquestCampaign.PlayerWinChance(Battle);
-                DrawString(ConquestText.Territory(Battle.TargetTerritoryId), 0, new Vector2(8, Height - 106), Color.Gold);
+                DrawString("BATTLE READY".L10N("Client:Conquest:BattleReady"), 0, new Vector2(8, Height - 106), Color.Gold);
                 DrawString(string.Format("Win {0:P0} / Lose {1:P0}".L10N("Client:Conquest:CompactBattleOdds"), win, 1 - win),
                     0, new Vector2(8, Height - 86), win >= 0.5 ? Color.LightGreen : Color.Orange);
             }

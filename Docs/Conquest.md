@@ -5,6 +5,9 @@ using the campaign dialog's border and background. **Q** also opens it when
 main-menu hotkeys are enabled. Select campaign size, starting credits, AI
 difficulty, seed, node-buff density, and both factions. **New Campaign** replaces
 the current save after confirmation; **Continue** restores it. **Main Menu** returns.
+Campaign size is the total territory count: Short (9), Standard (25), Long (64),
+or Epic (100). These presets come from the generator's 3, 5, 8, and 10 map sizes
+squared; larger presets make longer campaigns.
 Battle maps are assigned randomly to nodes from the installed compatible map list
 when the campaign is created. The assignment is saved. There is no battle-map
 selector, map exclusion, or separate Battle Options screen. A missing map does
@@ -39,13 +42,14 @@ and AI begin in opposite corners, each with one strength-8 army. Other territori
 are neutral, defended by strength 2. The seed controls territory bonuses and
 Auto Combat randomness, whose state is saved.
 
-Click one of your ready tank markers to select its army. Its node receives a
+Click one of your ready army markers to select its army. Its node receives a
 gold ring. Connected legal destinations and route arrows turn green for friendly
 moves/merges, orange for attacks. Click a highlighted destination to issue that
 order. Clicking an unlinked node only inspects it; it cannot move the army.
 Click empty space or press Escape over the map to clear army selection.
-Blue tanks belong to the player; red tanks belong to the AI. A slash marks an
-army that has used its action. Strength appears beside the marker.
+Blue army markers belong to the player; red markers belong to the AI. A slash marks an
+army that has used its action. The map has no numeric node or army labels. Inspect nodes by their assigned map
+name. Army power appears when an attack is pending, together with autobattle odds.
 Friendly armies merge, using both armies' actions. An army acts once per turn.
 **Recruit 100** creates or reinforces an army by 5 strength and uses its action.
 Clicking an army that has acted still selects it for inspection. Recruitment
@@ -77,17 +81,23 @@ faction's territories ends the campaign. Finished campaigns retain map and histo
   effective health; cloning converts both to the clone's Strength, following
   the randomizers' durability approach.
 - **Attack speed:** reduces weapon reload delay, rather than increasing it.
+- **Perk shop…:** buys Recruitment training and War treasury for 500 credits
+  per level, plus installed game-pack perks. Faction perks are permanent.
+  Configured StartingDefenses default to local improvements: select an owned
+  node before opening the shop to build there. Some new nodes begin fortified,
+  including neutral nodes. Defenses apply only when their node is attacked and
+  pass to its captor. The inspector and faction overview list local improvements.
+  `PurchaseCost=0` disables buying a perk; saved campaigns retain their definitions.
 
 **Bonuses…** opens the faction overview. **Player bonuses** and **Enemy bonuses**
 show each stat's permanent research, owned-node contribution, capped total, and
-opponent's total. An equal-army stat index compares both factions against a base
-of 100, excluding army size, supplies, and starting grants. Those are shown
-separately, together with actual income and recruitment strength. Values ahead
+opponent's total. Income and recruitment benefits are shown separately from combat stats. Campaign
+credits fund strategic purchases and are separate from skirmish starting money. Values ahead
 of the opponent are green; values behind are red. The window scrolls for long
 inventories. AI presentation and map orders pause while this window is open.
 
-Permanent research and temporary supplies have separate gold and blue summary
-cards on the map. There is no unlabelled stat dropdown. Research survives node
+Only temporary supply charges have a bottom summary card; permanent research
+is available in the research window. There is no unlabelled stat dropdown. Research survives node
 losses; territory stat bonuses apply only while owned; supplies last one battle.
 
 Some nodes also carry a **permanent capture reward**, shown in the inspector.
@@ -98,16 +108,18 @@ are **Recruitment training** (+1 army strength per recruit per level) and **War
 treasury** (+25 credits per turn per level), both capped at three levels.
 New campaigns generate these reward nodes; older campaigns retain their map.
 
-Game-specific rewards are capability-gated. **Starting troops** and **Starting
-defenses** require explicit game-pack definitions with actual map/spawner rule
-adapters for the supported engines and map pool. The client does not guess
-faction unit IDs, terrain placement, or engine scripting commands. **Veteran
-production** is available on YR/Ares only when the configured isolated clone
-roster contains trainable units. It grants veteran construction for that roster;
-human and AI country lists stay separate even in same-faction matches. This
-uses YR's native [country veteran-unit lists](https://github.com/Ares-Developers/YRpp/blob/master/HouseTypeClass.h).
-Unsupported special rewards are not offered. See the configuration example for
-`ConquestPerk:` definitions and faction-scoped adapter templates.
+With effective native TS/YR rules, the shop adds permanent infantry and vehicle
+escorts, veteran escorts, preplaced power plants, refineries and barracks, plus
+local node garrisons. Each faction receives its own roster. Native map placement
+avoids occupied terrain and keeps base deployment space clear. Existing campaigns
+receive newly available shop definitions on resume; new campaigns also generate
+corresponding capture rewards and fortified nodes.
+
+**Veteran production** remains a separate YR/Ares option for configured isolated
+clone rosters; **Veteran escorts** upgrades the purchased starting troops in both
+TS and YR. Specialized game-pack templates remain supported. See
+[Starting forces and node defenses](ConquestStartingForces.md) for costs,
+requirements, placement, faction adapters, and starting veterancy.
 
 Selecting an attack focuses and zooms to its target. The left panel shows that
 battle's territory, **Start Battle**, **Autobattle**, and player win/loss odds.
@@ -170,10 +182,16 @@ for one human and one AI. Co-op, multiplayer-only, human-only, and incompatible
 player-count maps are rejected. The campaign's two sides and AI difficulty are
 restored for each battle; random factions are resolved once at campaign creation,
 and game options are stored in the campaign snapshot. Starting positions and
-colors are randomized, teams are cleared, and normal lobby validation still runs. `GameLobbyBase` writes the normal `spawn.ini` and prepared map and
+colors are randomized, teams are cleared, and normal lobby validation still runs.
+Conquest assigns distinct starts in the client, so starting-grant adapters can
+resolve each base before map preparation. `GameLobbyBase` writes the normal `spawn.ini` and prepared map and
 uses the installation's normal executable, launcher, platform wrapper, and
 command line. Conquest matches are excluded from regular Skirmish statistics.
 The usual replay and saved-game infrastructure still runs.
+
+Conquest battles enable framed windowed mode through the selected renderer's
+configured keys, as well as the client's game-video settings. Renderer names and
+INI keys are not assumed to be shared between TS and YR.
 
 Before launching, Conquest saves the pending battle and clears the configured
 statistics log. On exit, it accepts only a completed match with an explicit
@@ -183,6 +201,22 @@ back to the campaign attacker, including when the human was defending.
 An aborted launch or absent/incomplete result leaves the attack unresolved.
 Retrying or choosing Auto Combat preserves its committed bonuses and history.
 A restart also returns to the unresolved attack rather than claiming a result.
+The native result is the scoreboard's `<player>: Winner` / `<player>: Loser`
+record. Legacy TS `Losser` records are accepted too. The local TS sample previously
+used an executable that did not write `TS.LOG` at all; no client parser can
+recover an automatic result from an absent scoreboard. Game packs need a
+logging-enabled spawner with the matching `StatisticsLogFileName`, for example
+[CnCNet's TS logging build](https://github.com/CnCNet/ts-patches/blob/master/src/logger.asm).
+The separately prepared developer sample uses that logging-enabled TS build;
+installed game directories are untouched. The match ID is also written to
+`spawn.ini` for the native spawner.
+
+The bundled development sample is not a complete game installation. A log error
+launching a missing `wine-ts.sh` means the configured Linux game wrapper is
+absent; it does not indicate an autobattle or map-generation failure. Install
+the client in a matching playable game/mod pack with its spawner, assets, and
+Wine wrapper. Missing launchers are reported before game lifecycle events,
+so the pending battle remains available for retry or Auto Combat.
 
 Combat integration is capability-based because this client serves multiple games.
 No game executable, unit ID, country, or Vinifera extension is inferred from a
@@ -240,7 +274,8 @@ an uncommitted tail; the next save truncates it. A failed save pauses campaign
 progress until **Save** succeeds. Snapshot validation rejects invalid territories,
 armies, economy, phase, outcome, or pending-battle state. IDs preserve chronology
 independently of wall-clock adjustments and reject repeated result callbacks.
-Save format 4 also accepts formats 1–3. Permanent reward definitions, claimed-node
+Save format 5 also accepts formats 1–4 and stores node improvements and shop
+prices/scopes. Permanent reward definitions, claimed-node
 markers, faction inventories, and committed battle inventories are saved. Legacy flat upgrades become damage
 research; legacy node bonuses become income, damage, or armor effects. Pending
 battles retain their already committed ratings. Old grid-prototype saves gain scattered
@@ -273,10 +308,16 @@ use the normal `[$ExtraControls]` declarations.
 `ConquestSetupPanel.ini` inherits the campaign-style `GenericWindow.ini` border
 and uses `MainMenu/dbak.png` in the bundled TS theme. Other packs fall back to
 their own GenericWindow styling. The settings form centers and shrinks to fit the
-client resolution. The map uses faction-tinted tank silhouettes by default;
-mods can supply a transparent `ConquestArmy.png` in the active/base resource
-search path to use their own unit or fleet marker. PNG preserves transparent
-edges around the unit. No additional bitmap asset is required.
+client resolution. The map uses transparent silhouettes extracted from native game files:
+GDI Titan, Nod Tick Tank, Allied Grizzly, Soviet Rhino, and Yuri Lasher. Faction-logo
+badges are omitted. Source assets and extraction details are recorded in
+[the unit asset notes](../DXMainClient/Resources/DTA/Conquest/Units/README.md).
+Mod authors can override these with transparent `ConquestArmy_<side name>.png`
+images, or `[ConquestArmyIcons]` in `GameOptions.ini` using
+`SideName=path/to/image.png`. `[ConquestArmyStyles]` maps custom faction names to
+`GDI`, `Nod`, `Allies`, `Soviet`, or `Yuri`. A generic `ConquestArmy.png` is also
+supported. The menu's custom font and glyph resources are released when its
+Conquest button is destroyed.
 
 History, territory effects, and faction bonus summaries use `XNAScrollPanel`
 for native scrolling and clipping. History draws only visible rows on one
@@ -297,7 +338,8 @@ dotnet restore DXClient.slnx -p:Configuration=UniversalGLRelease
 dotnet build DXMainClient/DXMainClient.csproj -p:Configuration=UniversalGLRelease -f net8.0 --no-restore
 ```
 
-No unit tests were added. Temporary command-line campaign scenarios exercised
+The console regression harness in `Tests/Conquest` runs against the built client
+assemblies. Additional temporary command-line campaign scenarios exercised
 complete campaigns, purchases, auto combat, simulated Skirmish outcomes,
 interruptions, repeated result callbacks, save/load, and outcomes. A separate
 100,005-event scenario checked chronological faction filtering, save/load, and
@@ -340,3 +382,28 @@ Use a compatible game/mod installation for the remaining manual checks:
 7. Verify regular Skirmish settings/ranks, main-menu navigation, music, campaign,
    CnCNet, and LAN remain functional. Repeat with a second mod/theme and with a
    long campaign history. The bundled resources do not include a playable game.
+
+
+## Conquest size and performance
+
+The native unit silhouettes total 12,832 bytes. The custom menu font is 176,096
+bytes; together these source assets are about 189 KB. Conquest adds no NuGet
+packages, engine DLLs, or executable dependencies to the distributed client.
+The optional local game-preparation helper stages game files only in an ignored
+developer output, not in client release resources.
+
+The Conquest menu caches its idle/hover captions instead of drawing hundreds of
+text layers every frame. The two caption textures are bounded to 512 by 128
+pixels each (512 KiB combined maximum; about 169 KiB at the normal 300 by 72 size),
+and the private font atlas starts at 256 by 128 pixels. Caption textures are
+replaced on text/size/font changes and disposed on shutdown. Map drawing reuses
+small army/destination arrays and checks movement legality only for neighbors.
+
+Battle setup streams compressed tiles through a single 64 KiB block buffer,
+retains only terrain near the two bases, and sorts placement candidates once per
+base. A console benchmark on Terrace with maximum native grants reduced warm
+placement from 28.76 ms / 31.83 MiB of allocations to 6.51 ms / 4.76 MiB on the
+same development machine. These are setup measurements, not whole-client memory
+or guaranteed frame rates on other hardware. The regression harness checks an
+8 MiB transient allocation budget for native placement and allocation-free
+movement queries. Run it with `-- --benchmark` to print setup measurements.

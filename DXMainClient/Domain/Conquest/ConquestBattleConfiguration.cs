@@ -60,7 +60,9 @@ namespace DTAClient.Domain.Conquest
         public List<ConquestPerkDefinition> LoadPerks(string gamePath, int? playerSide = null, int? aiSide = null)
         {
             var result = ConquestPerkDefinition.StrategicDefaults();
-            var effective = EnableUnitClones ? LoadRules(gamePath) : new IniFile();
+            var effective = LoadRules(gamePath);
+            if (NativeProfiles && playerSide.HasValue && aiSide.HasValue)
+                result.AddRange(ConquestStartingForces.Catalog(effective, playerSide.Value, aiSide.Value));
             var countries = effective.GetSection("Countries")?.Keys.Select(e => e.Value).Distinct().ToList() ?? new List<string>();
             bool rosterFor(int? side)
             {
@@ -82,8 +84,10 @@ namespace DTAClient.Domain.Conquest
             if (EnableUnitClones && veteranRoster && (game == ClientType.YR || game == ClientType.Ares))
                 result.Add(new ConquestPerkDefinition
                 {
-                    Id = "veteran-production", Kind = ConquestPerkKind.VeteranProduction,
-                    MaximumLevel = 1, AutoCombatStrength = 1
+                    Id = "veteran-production",
+                    Kind = ConquestPerkKind.VeteranProduction,
+                    MaximumLevel = 1,
+                    AutoCombatStrength = 1
                 });
 
             foreach (string section in perkConfiguration.GetSections().Where(s => s.StartsWith("ConquestPerk:", StringComparison.Ordinal)))
@@ -116,15 +120,21 @@ namespace DTAClient.Domain.Conquest
 
                 var perk = new ConquestPerkDefinition
                 {
-                    Id = id, Kind = kind,
+                    Id = id,
+                    Kind = kind,
                     Name = perkConfiguration.GetStringValue(section, "Name", string.Empty),
                     Description = perkConfiguration.GetStringValue(section, "Description", string.Empty),
                     MaximumLevel = Math.Max(1, Math.Min(3, perkConfiguration.GetIntValue(section, "MaximumLevel", 1))),
                     Amount = Math.Max(0, Math.Min(100, perkConfiguration.GetIntValue(section, "Amount", 0))),
                     AutoCombatStrength = Math.Max(0, Math.Min(10, perkConfiguration.GetIntValue(section, "AutoCombatStrength", 0))),
+                    PurchaseCost = perkConfiguration.GetIntValue(section, "PurchaseCost", 500),
+                    TerritoryOnly = perkConfiguration.GetBooleanValue(section, "TerritoryOnly", kind == ConquestPerkKind.StartingDefenses),
                     MapCodeFile = perkConfiguration.GetStringValue(section, "MapCode", string.Empty),
                     SpawnCodeFile = perkConfiguration.GetStringValue(section, "SpawnCode", string.Empty)
                 };
+                if (perk.PurchaseCost < 0 || perk.PurchaseCost > 100000 || (perk.TerritoryOnly && kind != ConquestPerkKind.StartingDefenses))
+                    throw new InvalidDataException("Invalid Conquest perk purchase cost or territory scope.");
+
                 if (kind != ConquestPerkKind.Recruitment && kind != ConquestPerkKind.Income &&
                     perk.MapCodeFile.Length == 0 && perk.SpawnCodeFile.Length == 0)
                     throw new InvalidDataException("Starting grants and veterancy require an explicit engine-specific perk adapter.");
@@ -137,6 +147,38 @@ namespace DTAClient.Domain.Conquest
                 throw new InvalidDataException("Too many Conquest perk definitions.");
 
             return result;
+        }
+
+        /// <summary>Reads only this installation's theater definitions; packed or custom theaters keep the conservative fallback.</summary>
+        public IniFile LoadTerrain(string gamePath, string theater)
+        {
+            string name = theater.Trim().ToUpperInvariant() switch
+            {
+                "TEMPERATE" => "temperat",
+                "SNOW" => "snow",
+                "URBAN" => "urban",
+                "NEWURBAN" => "urbann",
+                "DESERT" => "desert",
+                "LUNAR" => "lunar",
+                _ => string.Empty
+            };
+            if (name.Length == 0)
+                return new IniFile();
+
+            string[] names = game == ClientType.TS ? new[] { name + ".ini" } : new[] { name + "md.ini", name + ".ini" };
+            foreach (string filename in names)
+            {
+                foreach (string directory in new[] { gamePath, Path.Combine(gamePath, "INI") })
+                {
+                    if (!Directory.Exists(directory))
+                        continue;
+                    string? path = Directory.EnumerateFiles(directory).FirstOrDefault(p => string.Equals(Path.GetFileName(p), filename, StringComparison.OrdinalIgnoreCase));
+                    if (path != null)
+                        return new IniFile(path, FileExtensions.GetDetectedEncoding(path));
+                }
+            }
+
+            return new IniFile();
         }
 
         public static IniFile LoadGameIni(string gamePath, string relativePath)

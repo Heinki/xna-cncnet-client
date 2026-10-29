@@ -6,12 +6,12 @@ namespace DTAClient.Domain.Conquest
 {
     public enum ConquestPerkKind
     {
-        Recruitment, Income, StartingTroops, StartingDefenses, VeteranProduction
+        Recruitment, Income, StartingTroops, StartingDefenses, VeteranProduction, StartingStructures
     }
 
     /// <summary>
-    /// Permanent capture rewards. Engine-specific grants require a mod-owned adapter;
-    /// the client never infers unit IDs, construction rules, or deployment locations.
+    /// Permanent capture rewards and purchases. Starting objects come from effective game rules;
+    /// game-pack templates remain available for specialized grants.
     /// </summary>
     public sealed class ConquestPerkDefinition
     {
@@ -22,6 +22,9 @@ namespace DTAClient.Domain.Conquest
         public int MaximumLevel { get; set; } = 3;
         public int Amount { get; set; }
         public int AutoCombatStrength { get; set; }
+        public int PurchaseCost { get; set; } = 500;
+        public bool TerritoryOnly { get; set; }
+        public List<ConquestStartingObject> StartingObjects { get; set; } = new();
         public string MapCodeFile { get; set; } = string.Empty;
         public string SpawnCodeFile { get; set; } = string.Empty;
 

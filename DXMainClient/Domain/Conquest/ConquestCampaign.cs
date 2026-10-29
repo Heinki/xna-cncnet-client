@@ -11,7 +11,8 @@ namespace DTAClient.Domain.Conquest
         TurnStarted, TurnEnded, ArmyMoved, ArmyRecruited, TerritoryAttacked,
         TerritoryCaptured, TerritoryLost, ArmyDestroyed, CreditsGenerated, CreditsSpent,
         TerritoryBonusGained, TerritoryBonusLost, UpgradePurchased, TemporaryBonusPurchased,
-        TemporaryBonusConsumed, AutoCombatResult, SkirmishResult, CampaignVictory, CampaignDefeat, PermanentPerkGained
+        TemporaryBonusConsumed, AutoCombatResult, SkirmishResult, CampaignVictory, CampaignDefeat, PermanentPerkGained,
+        PerkPurchased, TerritoryImproved
     }
 
     /// <summary>
@@ -96,7 +97,13 @@ namespace DTAClient.Domain.Conquest
                     if (settings.BattleMaps.Count > 0)
                         territory.BattleMap = settings.BattleMaps[campaign.NextRandom(settings.BattleMaps.Count)];
                     if (settings.Perks.Count > 0 && campaign.NextRandom(100) < 15 + settings.BuffDensity * 10)
-                        territory.RewardId = settings.Perks[campaign.NextRandom(settings.Perks.Count)].Id;
+                    {
+                        var perk = settings.Perks[campaign.NextRandom(settings.Perks.Count)];
+                        if (perk.TerritoryOnly)
+                            territory.Perks[perk.Id] = 1;
+                        else
+                            territory.RewardId = perk.Id;
+                    }
                 }
             }
 
@@ -139,7 +146,16 @@ namespace DTAClient.Domain.Conquest
         public ConquestEconomy Economy(ConquestFaction faction) =>
             faction == ConquestFaction.Player ? State.Player : State.AI;
 
-        public ConquestArmy? ArmyAt(int territoryId) => State.Armies.Find(a => a.TerritoryId == territoryId);
+        public ConquestArmy? ArmyAt(int territoryId)
+        {
+            foreach (var army in State.Armies)
+            {
+                if (army.TerritoryId == territoryId)
+                    return army;
+            }
+
+            return null;
+        }
 
         public IEnumerable<ConquestTerritory> Neighbors(int territoryId)
         {
@@ -207,6 +223,39 @@ namespace DTAClient.Domain.Conquest
             return true;
         }
 
+        public bool CanBuyPerk(ConquestFaction faction, string id, int territoryId)
+        {
+            var perk = State.Settings.Perks.Find(p => p.Id == id);
+            if (perk == null || !CanAct(faction) || perk.PurchaseCost == 0 || Economy(faction).Credits < perk.PurchaseCost)
+                return false;
+
+            if (id == "veteran-escorts" && !State.Settings.Perks.Any(p => p.Kind == ConquestPerkKind.StartingTroops &&
+                p.StartingObjects.Count > 0 && Economy(faction).Perks.GetValueOrDefault(p.Id) > 0))
+                return false;
+
+            if (perk.TerritoryOnly && (territoryId < 0 || territoryId >= State.Territories.Count || State.Territories[territoryId].Owner != faction))
+                return false;
+
+            var inventory = perk.TerritoryOnly ? State.Territories[territoryId].Perks : Economy(faction).Perks;
+
+            return inventory.GetValueOrDefault(id) < perk.MaximumLevel;
+        }
+
+        public bool BuyPerk(ConquestFaction faction, string id, int territoryId)
+        {
+            if (!CanBuyPerk(faction, id, territoryId))
+                return false;
+
+            var perk = State.Settings.Perks.Single(p => p.Id == id);
+            var inventory = perk.TerritoryOnly ? State.Territories[territoryId].Perks : Economy(faction).Perks;
+            Spend(faction, perk.PurchaseCost, perk.TerritoryOnly ? territoryId : null);
+            inventory[id] = inventory.GetValueOrDefault(id) + 1;
+            Emit(faction, perk.TerritoryOnly ? ConquestEventType.TerritoryImproved : ConquestEventType.PerkPurchased,
+                target: perk.TerritoryOnly ? territoryId : null, amount: inventory[id], perk: perk);
+
+            return true;
+        }
+
         public bool CanMove(ConquestFaction faction, int sourceId, int targetId)
         {
             if (!CanAct(faction) || sourceId < 0 || targetId < 0 ||
@@ -216,7 +265,19 @@ namespace DTAClient.Domain.Conquest
             }
 
             var army = ArmyAt(sourceId);
-            if (army == null || army.Faction != faction || army.HasActed || !Neighbors(sourceId).Any(t => t.Id == targetId))
+            if (army == null || army.Faction != faction || army.HasActed)
+                return false;
+
+            bool adjacent = false;
+            foreach (var edge in State.Connections)
+            {
+                if (edge.Joins(sourceId, targetId))
+                {
+                    adjacent = true;
+                    break;
+                }
+            }
+            if (!adjacent)
                 return false;
 
             var target = State.Territories[targetId];
@@ -257,6 +318,8 @@ namespace DTAClient.Domain.Conquest
                 var defenderStats = Stats(target.Owner);
                 ConsumeBonus(faction, targetId, attackerStats);
                 ConsumeBonus(target.Owner, targetId, defenderStats);
+                var attackerPerks = BattlePerks(faction, false, target);
+                var defenderPerks = BattlePerks(target.Owner, true, target);
                 State.PendingBattle = new ConquestBattle
                 {
                     Id = State.NextId++,
@@ -264,12 +327,12 @@ namespace DTAClient.Domain.Conquest
                     Attacker = faction,
                     SourceTerritoryId = sourceId,
                     TargetTerritoryId = targetId,
-                    AttackPower = EffectivePower(army.Strength + PerkCombatStrength(faction, false), attackerStats),
-                    DefensePower = EffectivePower((defender?.Strength ?? 2) + PerkCombatStrength(target.Owner, true), defenderStats),
+                    AttackPower = EffectivePower(army.Strength + PerkCombatStrength(attackerPerks), attackerStats),
+                    DefensePower = EffectivePower((defender?.Strength ?? 2) + PerkCombatStrength(defenderPerks), defenderStats),
                     PlayerStats = faction == ConquestFaction.Player ? attackerStats : defenderStats,
                     AIStats = faction == ConquestFaction.AI ? attackerStats : defenderStats,
-                    PlayerPerks = new Dictionary<string, int>(State.Player.Perks),
-                    AIPerks = new Dictionary<string, int>(faction == ConquestFaction.Player && target.Owner == ConquestFaction.Neutral ? new Dictionary<string, int>() : State.AI.Perks)
+                    PlayerPerks = faction == ConquestFaction.Player ? attackerPerks : defenderPerks,
+                    AIPerks = faction == ConquestFaction.AI ? attackerPerks : defenderPerks
                 };
                 State.Phase = ConquestPhase.AwaitingBattle;
                 Emit(faction, ConquestEventType.TerritoryAttacked, sourceId, targetId);
@@ -301,6 +364,16 @@ namespace DTAClient.Domain.Conquest
             if (!State.AIPurchased)
             {
                 State.AIPurchased = true;
+
+                var improvements = State.Settings.Perks.Where(p => p.PurchaseCost > 0).ToList();
+                if (improvements.Count > 0)
+                {
+                    var perk = improvements[State.TurnNumber % improvements.Count];
+                    var node = State.Territories.Where(t => t.Owner == ConquestFaction.AI)
+                        .OrderBy(DistanceToEnemy).FirstOrDefault(t => CanBuyPerk(ConquestFaction.AI, perk.Id, t.Id));
+                    if (node != null && State.AI.Credits >= perk.PurchaseCost + RecruitmentCost && BuyPerk(ConquestFaction.AI, perk.Id, node.Id))
+                        return true;
+                }
 
                 if (State.AI.Credits >= UpgradeCost + RecruitmentCost && BuyUpgrade(ConquestFaction.AI, State.Settings.SupportedStats.Count == 0 ? ConquestStat.Health : State.Settings.SupportedStats[State.TurnNumber % State.Settings.SupportedStats.Count]))
                     return true;
@@ -454,15 +527,32 @@ namespace DTAClient.Domain.Conquest
         private int PerkAmount(ConquestFaction faction, ConquestPerkKind kind) => faction == ConquestFaction.Neutral ? 0 :
             State.Settings.Perks.Where(p => p.Kind == kind).Sum(p => p.Amount * Economy(faction).Perks.GetValueOrDefault(p.Id));
 
-        private int PerkCombatStrength(ConquestFaction faction, bool defending) => faction == ConquestFaction.Neutral ? 0 :
-            State.Settings.Perks.Where(p => p.Kind != ConquestPerkKind.StartingDefenses || defending)
-                .Sum(p => p.AutoCombatStrength * Economy(faction).Perks.GetValueOrDefault(p.Id));
+        private Dictionary<string, int> BattlePerks(ConquestFaction faction, bool defending, ConquestTerritory target)
+        {
+            var result = new Dictionary<string, int>();
+            foreach (var perk in State.Settings.Perks)
+            {
+                if (perk.Kind == ConquestPerkKind.StartingDefenses && !defending)
+                    continue;
+
+                int level = perk.TerritoryOnly ? (defending ? target.Perks.GetValueOrDefault(perk.Id) : 0) :
+                    faction == ConquestFaction.Neutral ? 0 : Economy(faction).Perks.GetValueOrDefault(perk.Id);
+                if (level > 0)
+                    result[perk.Id] = level;
+            }
+
+            return result;
+        }
+
+        private int PerkCombatStrength(Dictionary<string, int> perks) =>
+            State.Settings.Perks.Sum(p => p.AutoCombatStrength * perks.GetValueOrDefault(p.Id));
 
         public ConquestBonusSummary BonusSummary(ConquestFaction faction)
         {
             var summary = new ConquestBonusSummary
             {
-                Income = IncomePerTurn(faction), RecruitmentStrength = RecruitmentStrength(faction),
+                Income = IncomePerTurn(faction),
+                RecruitmentStrength = RecruitmentStrength(faction),
                 Supplies = Economy(faction).TemporaryBonuses,
                 ArmyStrength = State.Armies.Where(a => a.Faction == faction).Sum(a => a.Strength)
             };
@@ -598,7 +688,9 @@ namespace DTAClient.Domain.Conquest
                 Amount = amount,
                 Bonus = bonus,
                 Stat = stat,
-                PerkId = perk?.Id ?? string.Empty, PerkKind = perk?.Kind, PerkName = perk?.Name ?? string.Empty,
+                PerkId = perk?.Id ?? string.Empty,
+                PerkKind = perk?.Kind,
+                PerkName = perk?.Name ?? string.Empty,
                 Success = success,
                 Timestamp = DateTime.UtcNow
             };

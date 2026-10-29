@@ -42,7 +42,8 @@ namespace DTAClient.DXGUI.Conquest
             ClientRectangle = new Rectangle(0, 0, width, height);
             DrawOrder = 2;
             UpdateOrder = 2;
-            history = new ConquestHistoryView(windowManager, campaign.State.History, focusTerritory)
+            history = new ConquestHistoryView(windowManager, campaign.State.History, focusTerritory,
+                id => ConquestText.Territory(campaign.State.Territories[id]))
             {
                 ClientRectangle = new Rectangle(6, 68, width - 12, height - 106)
             };
@@ -183,6 +184,7 @@ namespace DTAClient.DXGUI.Conquest
     {
         private const int RowHeight = 66;
         private readonly ConquestHistory history;
+        private readonly Func<int, string> territoryName;
         private readonly Action<int> focusTerritory;
         private readonly HistoryRows rows;
         private readonly Dictionary<long, string> descriptions = new();
@@ -193,10 +195,12 @@ namespace DTAClient.DXGUI.Conquest
         private long actualHeight;
         private long actualViewTop;
 
-        public ConquestHistoryView(WindowManager windowManager, ConquestHistory history, Action<int> focusTerritory)
+        public ConquestHistoryView(WindowManager windowManager, ConquestHistory history, Action<int> focusTerritory,
+            Func<int, string> territoryName)
             : base(windowManager)
         {
             this.history = history;
+            this.territoryName = territoryName;
             this.focusTerritory = focusTerritory;
             Name = "spHistory";
             ScrollStep = RowHeight;
@@ -360,7 +364,7 @@ namespace DTAClient.DXGUI.Conquest
 
             private void DrawLink(int id, int x, int y, Color color)
             {
-                string name = ConquestText.Territory(id);
+                string name = Renderer.GetFixedTextLines(owner.territoryName(id), 0, Width / 2 - 12)[0];
                 DrawString(name, 0, new Vector2(x, y), color);
                 DrawLine(new Vector2(x, y + 15), new Vector2(x + Math.Min(Width / 2 - 12, Renderer.GetTextDimensions(name, 0).X), y + 15), color);
             }

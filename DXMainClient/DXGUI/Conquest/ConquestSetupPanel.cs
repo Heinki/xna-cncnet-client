@@ -43,16 +43,17 @@ namespace DTAClient.DXGUI.Conquest
             UpdateOrder = 1000;
 
             Label("lblSettingsTitle", 24, 20, "CONQUEST SETTINGS".L10N("Client:Conquest:SettingsTitle"));
-            Label("lblIntroduction", 24, 52, "Plan your campaign. Battle maps are assigned to nodes automatically.".L10N("Client:Conquest:SetupIntroduction"));
+            Label("lblIntroduction", 24, 52, "Capture nodes to earn campaign credits. Spend them on armies and upgrades; battle starting money is separate.".L10N("Client:Conquest:SetupCreditsExplanation"));
             int formX = (width - 460) / 2;
             int fieldX = formX + 200;
             Label("lblCampaignSize", formX, 94, "Campaign size".L10N("Client:Conquest:CampaignSize"));
             var size = DropDown("ddCampaignSize", fieldX, 90, new[]
             {
-                "9 nodes".L10N("Client:Conquest:Size9"), "25 nodes".L10N("Client:Conquest:Size25"),
-                "64 nodes".L10N("Client:Conquest:Size64"), "100 nodes".L10N("Client:Conquest:Size100")
+                "Short: 9 territories".L10N("Client:Conquest:SizeShort"), "Standard: 25 territories".L10N("Client:Conquest:SizeStandard"),
+                "Long: 64 territories".L10N("Client:Conquest:SizeLong"), "Epic: 100 territories".L10N("Client:Conquest:SizeEpic")
             }, 1);
-            Label("lblStartingCredits", formX, 130, "Starting credits".L10N("Client:Conquest:StartingCredits"));
+            size.ToolTipText = "Total territories on the campaign map. More territories mean a longer campaign.".L10N("Client:Conquest:CampaignSizeHelp");
+            Label("lblStartingCredits", formX, 130, "Campaign credits".L10N("Client:Conquest:SetupCampaignCredits"));
             var credits = DropDown("ddStartingCredits", fieldX, 126, new[] { "500", "1000", "2000" }, 0);
             Label("lblDifficulty", formX, 166, "AI difficulty".L10N("Client:Conquest:AIDifficulty"));
             var difficulty = DropDown("ddDifficulty", fieldX, 162, new[]
@@ -83,7 +84,7 @@ namespace DTAClient.DXGUI.Conquest
             Label("lblAIFaction", formX, 310, "AI faction".L10N("Client:Conquest:AIFaction"));
             var aiSide = DropDown("ddAIFaction", fieldX, 306, sideNames, choices.AISide);
 
-            Label("lblMovementHelp", 24, 358, "Select a tank to see connected destinations. Capture every enemy node to win.".L10N("Client:Conquest:SetupMovementHelp"));
+            Label("lblMovementHelp", 24, 358, "Select an army, then a connected node. Capture every enemy node to win.".L10N("Client:Conquest:SetupArmyHelp"));
             Label("lblResearchHelp", 24, 384, choices.SupportedStats.Count == 0 ? "Combat bonuses unavailable in this game.".L10N("Client:Conquest:CombatBonusesUnavailable") : string.Format("Research: {0}. +10% per level.".L10N("Client:Conquest:SetupStatResearch"), string.Join(", ", choices.SupportedStats.Select(ConquestText.Stat))));
             Label("lblSupplyHelp", 24, 410, choices.SupportedStats.Contains(ConquestStat.Damage) ? "Supply: 150 credits, +20% damage in your next battle. Store up to 3.".L10N("Client:Conquest:SetupSupplyHelp") : "Every node generates income. Recruit armies and capture connected nodes.".L10N("Client:Conquest:IncomeOnlyHelp"));
 

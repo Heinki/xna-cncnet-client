@@ -18,8 +18,13 @@ namespace ClientCore.Statistics.GameParsers
 
         public void ParseStats(string gamepath, string fileName)
         {
+            ParseStats(gamepath, fileName, ClientConfiguration.Instance.UseBuiltStatistic);
+        }
+
+        public void ParseStats(string gamepath, string fileName, bool useBuiltStatistics)
+        {
             this.fileName = fileName;
-            if (ClientConfiguration.Instance.UseBuiltStatistic) economyString = "Built";
+            economyString = useBuiltStatistics ? "Built" : "Economy";
             ParseStatistics(gamepath);
         }
 
@@ -49,11 +54,11 @@ namespace ClientCore.Statistics.GameParsers
 
                 while ((line = reader.ReadLine()) != null)
                 {
-                    if (line.Contains(": Loser"))
+                    if (line.EndsWith(": Loser", StringComparison.Ordinal) || line.EndsWith(": Losser", StringComparison.Ordinal))
                     {
                         // Player found, game saw completion
                         sawCompletion = true;
-                        string playerName = line.Substring(0, line.Length - 7);
+                        string playerName = line.Substring(0, line.LastIndexOf(": ", StringComparison.Ordinal));
                         currentPlayer = Statistics.GetEmptyPlayerByName(playerName);
 
                         if (isLoadedGame && currentPlayer == null)
@@ -73,7 +78,7 @@ namespace ClientCore.Statistics.GameParsers
                         if (currentPlayer != null)
                             currentPlayer.SawEnd = true;
                     }
-                    else if (line.Contains(": Winner"))
+                    else if (line.EndsWith(": Winner", StringComparison.Ordinal))
                     {
                         // Player found, game saw completion
                         sawCompletion = true;

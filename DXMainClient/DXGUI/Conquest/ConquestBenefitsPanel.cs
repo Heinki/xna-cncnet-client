@@ -19,7 +19,7 @@ namespace DTAClient.DXGUI.Conquest
 {
     internal enum ConquestBenefitsTab
     {
-        Research, Supplies, Player, Enemy
+        Research, Supplies, Player, Enemy, Shop
     }
 
     /// <summary>Full-size input shield with a centered research and faction comparison window.</summary>
@@ -35,13 +35,17 @@ namespace DTAClient.DXGUI.Conquest
         private readonly List<(string Text, Color Color)> lines = new();
         private ConquestBenefitsTab tab;
         private readonly ConquestTextScrollPanel summary;
+        private readonly ConquestScrollPanel shop;
+        private readonly int territoryId;
+        private readonly Dictionary<string, (ConquestButton Button, XNALabel Level)> perkPurchases = new();
 
         public ConquestBenefitsPanel(WindowManager windowManager, ConquestCampaign campaign, int width, int height,
-            Action<ConquestStat> buyResearch, Action buySupply, Action close) : base(windowManager)
+            Action<ConquestStat> buyResearch, Action buySupply, int territoryId, Action<string> buyPerk, Action close) : base(windowManager)
         {
             this.campaign = campaign;
             this.buyResearch = buyResearch;
             this.buySupply = buySupply;
+            this.territoryId = territoryId;
             Name = nameof(ConquestBenefitsPanel);
             ClientRectangle = new Rectangle(0, 0, width, height);
             DrawOrder = 2000;
@@ -60,13 +64,14 @@ namespace DTAClient.DXGUI.Conquest
                 "Research".L10N("Client:Conquest:Benefits:Research"),
                 "Supplies".L10N("Client:Conquest:Benefits:Supplies"),
                 "Player bonuses".L10N("Client:Conquest:Benefits:Player"),
-                "Enemy bonuses".L10N("Client:Conquest:Benefits:Enemy")
+                "Enemy bonuses".L10N("Client:Conquest:Benefits:Enemy"),
+                "Perk shop".L10N("Client:Conquest:Benefits:Shop")
             };
             for (int i = 0; i < names.Length; i++)
             {
                 int index = i;
-                var button = Button("btnTab" + (ConquestBenefitsTab)index, names[i], body.X + 16 + i * ((body.Width - 32) / 4), body.Y + 48,
-                    (body.Width - 44) / 4, () => ShowTab((ConquestBenefitsTab)index));
+                var button = Button("btnTab" + (ConquestBenefitsTab)index, names[i], body.X + 16 + i * ((body.Width - 32) / names.Length), body.Y + 48,
+                    (body.Width - 56) / names.Length, () => ShowTab((ConquestBenefitsTab)index));
                 button.TextColorIdle = index == 3 ? Color.Salmon : index == 2 ? Color.LightSkyBlue : index == 0 ? Color.Gold : Color.LightSkyBlue;
                 tabs.Add(button);
             }
@@ -74,11 +79,53 @@ namespace DTAClient.DXGUI.Conquest
             {
                 var captured = stat;
                 int row = purchases.Count;
-                purchases[stat] = Button("btnBuy" + stat, "Buy 400".L10N("Client:Conquest:Benefits:BuyResearch"), body.Right - 149,
+                purchases[stat] = Button("btnBuy" + stat, "Buy: 400 credits".L10N("Client:Conquest:Benefits:ResearchPrice"), body.Right - 149,
                     body.Y + 136 + row * 61, 133, () => this.buyResearch(captured));
             }
-            supplyPurchase = Button("btnBuySupply", "Buy supply 150".L10N("Client:Conquest:Benefits:BuySupply"),
+            supplyPurchase = Button("btnBuySupply", "Buy charge: 150 credits".L10N("Client:Conquest:Benefits:SupplyPrice"),
                 body.X + 24, body.Y + 239, 170, () => this.buySupply());
+            shop = new ConquestScrollPanel(windowManager)
+            {
+                Name = "spPerkShop",
+                ClientRectangle = summary.ClientRectangle
+            };
+            AddChild(shop);
+            int shopY = 4;
+            foreach (var perk in campaign.State.Settings.Perks.Where(p => p.PurchaseCost > 0))
+            {
+                string id = perk.Id;
+                var caption = new XNALabel(windowManager)
+                {
+                    Name = "lblPerk" + id,
+                    X = 6,
+                    Y = shopY,
+                    TextColor = perk.TerritoryOnly ? Color.LightSkyBlue : Color.Plum,
+                    Text = string.Join("\n", Renderer.GetFixedTextLines(ConquestText.PerkName(perk), 0, shop.ContentWidth - 16))
+                };
+                shop.Content.AddChild(caption);
+                string scope = perk.TerritoryOnly
+                    ? string.Format("Defenses for {0} only; pass to its captor.".L10N("Client:Conquest:Benefits:NodePerkScope"), ConquestText.Territory(campaign.State.Territories[territoryId]))
+                    : "Permanent. Applies to your whole faction.".L10N("Client:Conquest:Benefits:PermanentFactionScope");
+                string description = string.Join("\n", Renderer.GetFixedTextLines(ConquestText.PerkDescription(perk) + "\n" + scope, 0, shop.ContentWidth - 16));
+                var help = new XNALabel(windowManager)
+                {
+                    Name = "lblPerkHelp" + id,
+                    X = 6,
+                    Y = caption.Y + caption.Height + 6,
+                    TextColor = Color.LightGray,
+                    Text = description
+                };
+                shop.Content.AddChild(help);
+                int purchaseY = help.Y + help.Height + 6;
+                var level = new XNALabel(windowManager) { Name = "lblPerkLevel" + id, X = 6, Y = purchaseY + 3 };
+                shop.Content.AddChild(level);
+                var purchase = Button("btnBuyPerk" + id,
+                    string.Format("Buy: {0} credits".L10N("Client:Conquest:Benefits:PerkPrice"), perk.PurchaseCost),
+                    shop.ContentWidth - 145, purchaseY, 133, () => buyPerk(id), shop.Content);
+                perkPurchases[id] = (purchase, level);
+                shopY = purchaseY + 42;
+            }
+            shop.RefreshContentSize();
             Button("btnClose", "Close".L10N("Client:Conquest:Benefits:Close"), body.Right - 149, body.Bottom - 39, 133, close);
             Refresh();
         }
@@ -87,10 +134,11 @@ namespace DTAClient.DXGUI.Conquest
         {
             tab = selected;
             summary.ScrollToTop();
+            shop.CurrentViewPosition = Point.Zero;
             Refresh();
         }
 
-        private ConquestButton Button(string name, string text, int x, int y, int width, Action action)
+        private ConquestButton Button(string name, string text, int x, int y, int width, Action action, XNAControl? parent = null)
         {
             var button = new ConquestButton(WindowManager)
             {
@@ -102,7 +150,7 @@ namespace DTAClient.DXGUI.Conquest
                 ClientRectangle = new Rectangle(x, y, width, 23)
             };
             button.LeftClick += (_, _) => action();
-            AddChild(button);
+            (parent ?? this).AddChild(button);
 
             return button;
         }
@@ -119,6 +167,14 @@ namespace DTAClient.DXGUI.Conquest
                     campaign.State.Player.Upgrades.GetValueOrDefault(purchase.Key) < 3;
             }
             supplyPurchase.Visible = tab == ConquestBenefitsTab.Supplies;
+            shop.Visible = shop.Enabled = tab == ConquestBenefitsTab.Shop;
+            foreach (var perk in campaign.State.Settings.Perks.Where(p => perkPurchases.ContainsKey(p.Id)))
+            {
+                var purchase = perkPurchases[perk.Id];
+                int level = (perk.TerritoryOnly ? campaign.State.Territories[territoryId].Perks : campaign.State.Player.Perks).GetValueOrDefault(perk.Id);
+                purchase.Level.Text = string.Format("Level {0}/{1}".L10N("Client:Conquest:Benefits:ShopLevel"), level, perk.MaximumLevel);
+                purchase.Button.Enabled = campaign.CanBuyPerk(ConquestFaction.Player, perk.Id, territoryId);
+            }
             supplyPurchase.Enabled = canBuy && campaign.State.Player.Credits >= ConquestCampaign.TemporaryBonusCost &&
                 campaign.State.Player.TemporaryBonuses < 3 && campaign.State.Settings.SupportedStats.Contains(ConquestStat.Damage);
             lines.Clear();
@@ -138,19 +194,15 @@ namespace DTAClient.DXGUI.Conquest
         private void BuildSummary(ConquestFaction faction)
         {
             var summary = campaign.BonusSummary(faction);
-            var other = campaign.BonusSummary(faction == ConquestFaction.Player ? ConquestFaction.AI : ConquestFaction.Player);
             Add("STAT TOTALS — research + owned nodes (cap +100%)".L10N("Client:Conquest:Benefits:TotalsHeader"), Color.Gold);
             foreach (ConquestStat stat in campaign.State.Settings.SupportedStats)
             {
-                Add(string.Format("{0}: {1}% research + {2}% nodes = +{3}% total | Opponent: +{4}%".L10N("Client:Conquest:Benefits:StatBreakdown"),
-                    ConquestText.Stat(stat), summary.Research[stat], summary.Territories[stat], summary.Total[stat], other.Total[stat]),
-                    summary.Total[stat] > other.Total[stat] ? Color.LightGreen : summary.Total[stat] < other.Total[stat] ? Color.Salmon : Color.White);
+                Add(string.Format("{0}: {1}% research + {2}% nodes = +{3}% total".L10N("Client:Conquest:Benefits:FactionStatBreakdown"),
+                    ConquestText.Stat(stat), summary.Research[stat], summary.Territories[stat], summary.Total[stat]), Color.White);
             }
-            Add(string.Format("Equal-army stat index: {0} | Opponent: {1} (base 100)".L10N("Client:Conquest:Benefits:StatIndex"), summary.StatIndex, other.StatIndex), Color.Gold);
-            Add("Index compares stats only; army strength, supplies and starting grants are separate.".L10N("Client:Conquest:Benefits:IndexHelp"), Color.LightGray);
-            Add(string.Format("Army strength: {0} | Income / turn: {1} | Recruit strength: +{2}".L10N("Client:Conquest:Benefits:Economy"),
-                summary.ArmyStrength, summary.Income, summary.RecruitmentStrength), Color.White);
-            Add("PERMANENT CAPTURE REWARDS — kept after losing the node".L10N("Client:Conquest:Benefits:PerksHeader"), Color.Plum);
+            Add(string.Format("Income: {0} campaign credits/turn | Recruiting adds {1} army power".L10N("Client:Conquest:Benefits:EconomyHelp"),
+                summary.Income, summary.RecruitmentStrength), Color.White);
+            Add("PERMANENT PERKS — purchased or collected; kept after losing nodes".L10N("Client:Conquest:Benefits:OwnedPerksHeader"), Color.Plum);
             var owned = campaign.Economy(faction).Perks;
             bool any = false;
             foreach (var perk in campaign.State.Settings.Perks.Where(p => owned.GetValueOrDefault(p.Id) > 0))
@@ -161,6 +213,15 @@ namespace DTAClient.DXGUI.Conquest
             }
             if (!any)
                 Add("No capture rewards collected.".L10N("Client:Conquest:Benefits:NoPerks"), Color.LightGray);
+            foreach (var node in campaign.State.Territories.Where(t => t.Owner == faction && t.Perks.Count > 0))
+            {
+                foreach (var improvement in node.Perks)
+                {
+                    var perk = campaign.State.Settings.Perks.Single(p => p.Id == improvement.Key);
+                    Add(string.Format("{0}: {1}, level {2} (local defense)".L10N("Client:Conquest:Benefits:NodeImprovement"),
+                        ConquestText.Territory(node), ConquestText.PerkName(perk), improvement.Value), Color.LightSkyBlue);
+                }
+            }
             Add("TEMPORARY SUPPLIES — separate from permanent totals".L10N("Client:Conquest:Benefits:SupplyHeader"), Color.LightSkyBlue);
             Add(string.Format("Reserve: {0}/3. One charge gives +20% damage in the next battle.".L10N("Client:Conquest:Benefits:Reserve"), summary.Supplies), Color.LightSkyBlue);
             var pending = campaign.State.PendingBattle;
@@ -182,6 +243,8 @@ namespace DTAClient.DXGUI.Conquest
                 tab == ConquestBenefitsTab.Enemy ? "ENEMY BONUSES".L10N("Client:Conquest:Benefits:EnemyTitle") :
                 "CAMPAIGN BONUSES".L10N("Client:Conquest:Benefits:Title");
             DrawString(heading, 1, new Vector2(body.X + 16, body.Y + 15), accent);
+            string wallet = string.Format("Credits: {0}".L10N("Client:Conquest:Benefits:Wallet"), campaign.State.Player.Credits);
+            DrawString(wallet, 0, new Vector2(body.Right - Renderer.GetTextDimensions(wallet, 0).X - 16, body.Y + 15), Color.Gold);
             if (tab == ConquestBenefitsTab.Research)
                 DrawResearch();
             else if (tab == ConquestBenefitsTab.Supplies)
