@@ -36,6 +36,8 @@
   <ItemGroup>
     <None Remove="Icons\*.png" />
     <EmbeddedResource Include="Icons\*.png" />
+    <EmbeddedResource Include="Resources/DTA/Fonts/texgyreadventor-bold.otf" LogicalName="DTAClient.ConquestMenu.otf" />
+    <EmbeddedResource Include="Resources/DTA/Fonts/GUST-FONT-LICENSE.txt" LogicalName="DTAClient.ConquestMenu-License.txt" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="clienticon.ico" />

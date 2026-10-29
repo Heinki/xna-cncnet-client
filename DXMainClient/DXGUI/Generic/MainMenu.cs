@@ -1,28 +1,30 @@
-using ClientCore;
-using ClientCore.I18N;
-using ClientGUI;
-using DTAClient.Domain;
-using DTAClient.Domain.Multiplayer.CnCNet;
-using DTAClient.DXGUI.Multiplayer;
-using DTAClient.DXGUI.Multiplayer.CnCNet;
-using DTAClient.DXGUI.Multiplayer.GameLobby;
-using DTAClient.Online;
-using ClientCore.Extensions;
-using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Input;
-using Microsoft.Xna.Framework.Media;
-using Rampastring.Tools;
-using Rampastring.XNAUI;
-using Rampastring.XNAUI.XNAControls;
-using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System;
+
+using ClientCore.Extensions;
+using ClientCore.I18N;
+using ClientCore;
+using ClientGUI;
 using ClientUpdater;
-using DTAClient.Domain.Multiplayer;
 using DTAClient.DXGUI.Campaign;
+using DTAClient.DXGUI.Conquest;
+using DTAClient.DXGUI.Multiplayer.CnCNet;
+using DTAClient.DXGUI.Multiplayer.GameLobby;
+using DTAClient.DXGUI.Multiplayer;
+using DTAClient.Domain.Multiplayer.CnCNet;
+using DTAClient.Domain.Multiplayer;
+using DTAClient.Domain;
+using DTAClient.Online;
+using Microsoft.Xna.Framework.Input;
+using Microsoft.Xna.Framework.Media;
+using Microsoft.Xna.Framework;
+using Rampastring.Tools;
+using Rampastring.XNAUI.XNAControls;
+using Rampastring.XNAUI;
 
 namespace DTAClient.DXGUI.Generic
 {
@@ -41,6 +43,7 @@ namespace DTAClient.DXGUI.Generic
         public MainMenu(
             WindowManager windowManager,
             SkirmishLobby skirmishLobby,
+            ConquestLobby conquestLobby,
             LANLobby lanLobby,
             TopBar topBar,
             OptionsWindow optionsWindow,
@@ -70,6 +73,7 @@ namespace DTAClient.DXGUI.Generic
             this.cncnetLobby = cncnetLobby;
             this.discordHandler = discordHandler;
             this.skirmishLobby = skirmishLobby;
+            this.conquestLobby = conquestLobby;
             this.cnCNetGameLoadingLobby = cnCNetGameLoadingLobby;
             this.cnCNetGameLobby = cnCNetGameLobby;
             this.privateMessagingPanel = privateMessagingPanel;
@@ -96,6 +100,8 @@ namespace DTAClient.DXGUI.Generic
         private CnCNetLobby cncnetLobby;
 
         private SkirmishLobby skirmishLobby;
+
+        private readonly ConquestLobby conquestLobby;
 
         private LANLobby lanLobby;
 
@@ -154,6 +160,7 @@ namespace DTAClient.DXGUI.Generic
         private XNAClientButton btnNewCampaign;
         private XNAClientButton btnLoadGame;
         private XNAClientButton btnSkirmish;
+        private XNAClientButton btnConquest;
         private XNAClientButton btnCnCNet;
         private XNAClientButton btnLan;
         private XNAClientButton btnOptions;
@@ -196,6 +203,11 @@ namespace DTAClient.DXGUI.Generic
             btnSkirmish.HoverTexture = AssetLoader.LoadTexture("MainMenu/skirmish_c.png");
             btnSkirmish.HoverSoundEffect = new EnhancedSoundEffect("MainMenu/button.wav");
             btnSkirmish.LeftClick += BtnSkirmish_LeftClick;
+
+            btnConquest = new ConquestMenuButton(WindowManager);
+            btnConquest.Name = nameof(btnConquest);
+            btnConquest.Text = "Conquest".L10N("Client:Conquest:MainMenuButton");
+            btnConquest.LeftClick += BtnConquest_LeftClick;
 
             btnCnCNet = new XNAClientButton(WindowManager);
             btnCnCNet.Name = nameof(btnCnCNet);
@@ -274,6 +286,7 @@ namespace DTAClient.DXGUI.Generic
             AddChild(btnNewCampaign);
             AddChild(btnLoadGame);
             AddChild(btnSkirmish);
+            AddChild(btnConquest);
             AddChild(btnCnCNet);
             AddChild(btnLan);
             AddChild(btnOptions);
@@ -297,6 +310,33 @@ namespace DTAClient.DXGUI.Generic
             }
 
             base.Initialize(); // Read control attributes from INI
+
+            if (!ThemeIni.SectionExists(nameof(btnConquest)))
+            {
+                // Insert after Skirmish using the theme's actual column spacing.
+                int skirmishY = btnSkirmish.Y;
+                var column = Children.OfType<XNAClientButton>().Where(button => button != btnConquest && button.Visible &&
+                    Math.Abs(button.X - btnSkirmish.X) <= 4).ToArray();
+                int gap = column.Where(button => button.Y > skirmishY).Select(button => button.Y - skirmishY)
+                    .DefaultIfEmpty(48).Min();
+                gap = Math.Max(24, Math.Min(80, gap));
+                foreach (var button in column.Where(button => button.Y <= skirmishY))
+                    button.Y -= gap;
+
+                if (!string.IsNullOrEmpty(btnSkirmish.Text))
+                {
+                    // Text-based themes already supply a reusable button background.
+                    btnConquest.IdleTexture = btnSkirmish.IdleTexture;
+                    btnConquest.HoverTexture = btnSkirmish.HoverTexture;
+                    btnConquest.FontIndex = btnSkirmish.FontIndex;
+                    btnConquest.TextColorIdle = btnSkirmish.TextColorIdle;
+                    btnConquest.TextColorHover = btnSkirmish.TextColorHover;
+                    btnConquest.TextShadowDistance = btnSkirmish.TextShadowDistance;
+                    btnConquest.HoverSoundEffect = btnSkirmish.HoverSoundEffect;
+                }
+
+                btnConquest.ClientRectangle = new Rectangle(btnSkirmish.X, skirmishY, btnSkirmish.Width, btnSkirmish.Height);
+            }
 
             lblVersion.Text = Updater.GameVersion;
 
@@ -322,6 +362,7 @@ namespace DTAClient.DXGUI.Generic
 #endif
 
             skirmishLobby.Exited += SkirmishLobby_Exited;
+            conquestLobby.Exited += SkirmishLobby_Exited;
             lanLobby.Exited += LanLobby_Exited;
             optionsWindow.EnabledChanged += OptionsWindow_EnabledChanged;
 
@@ -347,6 +388,7 @@ namespace DTAClient.DXGUI.Generic
                 btnNewCampaign.HotKey = Keys.C;
                 btnLoadGame.HotKey = Keys.L;
                 btnSkirmish.HotKey = Keys.S;
+                btnConquest.HotKey = Keys.Q;
                 btnCnCNet.HotKey = Keys.M;
                 btnLan.HotKey = Keys.N;
                 btnOptions.HotKey = Keys.O;
@@ -360,6 +402,7 @@ namespace DTAClient.DXGUI.Generic
                 btnNewCampaign.HotKey = Keys.None;
                 btnLoadGame.HotKey = Keys.None;
                 btnSkirmish.HotKey = Keys.None;
+                btnConquest.HotKey = Keys.None;
                 btnCnCNet.HotKey = Keys.None;
                 btnLan.HotKey = Keys.None;
                 btnOptions.HotKey = Keys.None;
@@ -684,6 +727,7 @@ namespace DTAClient.DXGUI.Generic
             {
                 statisticsWindow, // Note: StatisticsWindow must be initialized before any lobbies that extends GameLobbyBase. This is because StatisticsManager is accessed when initializing GameLobbyBase.
                 skirmishLobby,
+                conquestLobby,
                 cnCNetGameLoadingLobby,
                 cnCNetGameLobby,
                 cncnetLobby,
@@ -708,6 +752,7 @@ namespace DTAClient.DXGUI.Generic
             foreach (XNAControl control in new XNAControl[]
             {
                 skirmishLobby,
+                conquestLobby,
                 cnCNetGameLoadingLobby,
                 cnCNetGameLobby,
                 cncnetLobby,
@@ -1048,6 +1093,14 @@ namespace DTAClient.DXGUI.Generic
         private void BtnSkirmish_LeftClick(object sender, EventArgs e)
         {
             skirmishLobby.Open();
+
+            if (UserINISettings.Instance.StopMusicOnMenu)
+                MusicOff();
+        }
+
+        private void BtnConquest_LeftClick(object sender, EventArgs e)
+        {
+            conquestLobby.Open();
 
             if (UserINISettings.Instance.StopMusicOnMenu)
                 MusicOff();

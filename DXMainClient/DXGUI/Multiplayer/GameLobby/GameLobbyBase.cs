@@ -1831,6 +1831,8 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
             string packedGameOptionValues = GetPackedGameOptionValuesString();
             spawnIni.SetStringValue("Settings", "BroadcastedGameOptionValues", packedGameOptionValues);
 
+            ApplyAdditionalSpawnCode(spawnIni);
+
             ReplayManager.PrepareRecording(spawnIni, Map.UntranslatedName);
 
             spawnIni.WriteIniFile();
@@ -1888,6 +1890,10 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
         protected virtual void WriteSpawnIniAdditions(IniFile iniFile)
         {
             // Do nothing by default
+        }
+
+        protected virtual void ApplyAdditionalSpawnCode(IniFile iniFile)
+        {
         }
 
         private void InitializeMatchStatistics(PlayerHouseInfo[] houseInfos)
@@ -1985,7 +1991,13 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
 
             ManipulateStartingLocations(mapIni, houseInfos);
 
+            ApplyAdditionalMapCode(mapIni, houseInfos);
+
             mapIni.WriteIniFile(spawnMapIniFile.FullName);
+        }
+
+        protected virtual void ApplyAdditionalMapCode(IniFile mapIni, PlayerHouseInfo[] houseInfos)
+        {
         }
 
         /// <summary>
@@ -2187,8 +2199,28 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
 
             GameProcessLogic.GameProcessExited += GameProcessExited_Callback;
 
-            GameProcessLogic.StartGameProcess(WindowManager);
+            bool processStarting = false;
+            Action startingHandler = () => processStarting = true;
+            GameProcessLogic.GameProcessStarting += startingHandler;
+            try
+            {
+                GameProcessLogic.StartGameProcess(WindowManager);
+            }
+            finally
+            {
+                GameProcessLogic.GameProcessStarting -= startingHandler;
+                if (!processStarting)
+                {
+                    GameProcessLogic.GameProcessExited -= GameProcessExited_Callback;
+                    OnGameLaunchCancelled();
+                }
+            }
+
             UpdateDiscordPresence(true);
+        }
+
+        protected virtual void OnGameLaunchCancelled()
+        {
         }
 
         private void GameProcessExited_Callback() => AddCallback(new Action(GameProcessExited), null);
@@ -2201,9 +2233,12 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
 
             matchStatistics?.ParseStatistics(ProgramConstants.GamePath, ClientConfiguration.Instance.LocalGame, false);
 
+            OnMatchCompleted(matchStatistics);
+
             Logger.Log("GameProcessExited: Adding match to statistics.");
 
-            StatisticsManager.Instance.AddMatchAndSaveDatabase(true, matchStatistics);
+            if (RecordMatchStatistics)
+                StatisticsManager.Instance.AddMatchAndSaveDatabase(true, matchStatistics);
 
             ClearReadyStatuses();
 
@@ -2212,6 +2247,12 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
             UpdateDiscordPresence(true);
 
             ReplayManager.Prune();
+        }
+
+        protected virtual bool RecordMatchStatistics => true;
+
+        protected virtual void OnMatchCompleted(MatchStatistics statistics)
+        {
         }
 
         /// <summary>

@@ -25,6 +25,8 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
     {
         private const string SETTINGS_PATH = "Client/SkirmishSettings.ini";
 
+        protected virtual string SettingsPath => SETTINGS_PATH;
+
         public SkirmishLobby(WindowManager windowManager, TopBar topBar, MapLoader mapLoader, DiscordHandler discordHandler, Random random)
             : base(windowManager, "SkirmishLobby", mapLoader, false, discordHandler, random)
         {
@@ -110,8 +112,11 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
             CopyPlayerDataToUI();
         }
 
-        private string CheckGameValidity()
+        protected string CheckGameValidity()
         {
+            if (GameModeMap == null)
+                return "Select a map before launching a game.".L10N("Client:Main:SelectMapBeforeLaunch");
+
             int totalPlayerCount = Players.Count(p => p.SideId < ddPlayerSides[0].Items.Count - 1)
                 + AIPlayers.Count;
 
@@ -230,7 +235,7 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
             RandomSeed = random.Next();
         }
 
-        public void Open()
+        public virtual void Open()
         {
             topBar.AddPrimarySwitchable(this);
             Enable();
@@ -246,7 +251,7 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
             Disable();
         }
 
-        public string GetSwitchName()
+        public virtual string GetSwitchName()
         {
             return "Skirmish Lobby".L10N("Client:Main:SkirmishLobby");
         }
@@ -254,11 +259,11 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
         /// <summary>
         /// Saves skirmish settings to an INI file on the file system.
         /// </summary>
-        private void SaveSettings()
+        protected void SaveSettings()
         {
             try
             {
-                FileInfo settingsFileInfo = SafePath.GetFile(ProgramConstants.GamePath, SETTINGS_PATH);
+                FileInfo settingsFileInfo = SafePath.GetFile(ProgramConstants.GamePath, SettingsPath);
 
                 // Delete the file so we don't keep potential extra AI players that already exist in the file
                 settingsFileInfo.Delete();
@@ -305,13 +310,13 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
         /// </summary>
         private void LoadSettings()
         {
-            if (!SafePath.GetFile(ProgramConstants.GamePath, SETTINGS_PATH).Exists)
+            if (!SafePath.GetFile(ProgramConstants.GamePath, SettingsPath).Exists)
             {
                 InitDefaultSettings();
                 return;
             }
 
-            var skirmishSettingsIni = new IniFile(SafePath.CombineFilePath(ProgramConstants.GamePath, SETTINGS_PATH));
+            var skirmishSettingsIni = new IniFile(SafePath.CombineFilePath(ProgramConstants.GamePath, SettingsPath));
 
             string gameModeMapFilterName = skirmishSettingsIni.GetStringValue("Settings", "GameModeMapFilter", string.Empty);
             if (string.IsNullOrEmpty(gameModeMapFilterName))
